@@ -3,6 +3,7 @@ import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import * as kv from "./kv_store.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { registerProgramRoutes } from "./program_routes.tsx";
 
 const app = new Hono();
 
@@ -22,7 +23,8 @@ const supabaseAnon = createClient(
 const initStorage = async () => {
   const bucketNames = [
     'make-9340b842-journal-media',
-    'make-9340b842-exercise-media'
+    'make-9340b842-exercise-media',
+    'make-9340b842-app-assets'
   ];
   
   try {
@@ -66,15 +68,229 @@ app.get("/make-server-9340b842/health", (c) => {
   return c.json({ status: "ok" });
 });
 
-// ============= AUTH ROUTES =============
+// Test endpoint to validate JWT token
+app.get("/make-server-9340b842/auth/test-token", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    
+    console.log('=== Token Test ===');
+    console.log('Token exists:', !!accessToken);
+    console.log('Token length:', accessToken?.length || 0);
+    
+    if (!accessToken) {
+      return c.json({ error: 'No token provided' }, 401);
+    }
+
+    // Test with anon client
+    console.log('Testing with supabaseAnon client...');
+    const { data: anonData, error: anonError } = await supabaseAnon.auth.getUser(accessToken);
+    console.log('Anon result - User:', anonData?.user?.id);
+    console.log('Anon result - Error:', anonError);
+
+    // Test with service role client
+    console.log('Testing with supabase (service role) client...');
+    const { data: serviceData, error: serviceError } = await supabase.auth.getUser(accessToken);
+    console.log('Service role result - User:', serviceData?.user?.id);
+    console.log('Service role result - Error:', serviceError);
+
+    if (anonError) {
+      return c.json({ 
+        error: 'Token validation failed',
+        anonError: anonError.message,
+        serviceError: serviceError?.message
+      }, 401);
+    }
+
+    return c.json({ 
+      success: true,
+      userId: anonData.user.id,
+      email: anonData.user.email,
+      metadata: anonData.user.user_metadata
+    });
+  } catch (error) {
+    console.error('Token test error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Session validation endpoint for debugging
+app.get("/make-server-9340b842/auth/session", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    
+    if (!accessToken) {
+      return c.json({ error: 'No token provided' }, 401);
+    }
+
+    const { data: { user }, error } = await supabaseAnon.auth.getUser(accessToken);
+
+    if (error || !user) {
+      return c.json({ error: error?.message || 'Invalid session' }, 401);
+    }
+
+    // Get user profile from KV
+    const profile = await kv.get(`user:${user.id}`);
+
+    return c.json({ 
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: profile?.role || 'unknown',
+        fullName: profile?.fullName || user.user_metadata?.name
+      }
+    });
+  } catch (error) {
+    console.error('Session check error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Create initial admin user (for setup only)
+app.post("/make-server-9340b842/auth/create-admin", async (c) => {
+  try {
+    const { email, password, fullName } = await c.req.json();
+    
+    if (!email || !password || !fullName) {
+      return c.json({ error: "Missing required fields: email, password, fullName" }, 400);
+    }
+
+    console.log('=== Creating Admin User ===');
+    console.log('Email:', email);
+    console.log('Name:', fullName);
+
+    // Create user in Supabase Auth with admin role
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      user_metadata: { 
+        name: fullName,
+        role: 'admin'
+      },
+      email_confirm: true // Auto-confirm since email server not configured
+    });
+
+    if (error) {
+      console.error('Create admin error:', error);
+      return c.json({ error: error.message }, 400);
+    }
+
+    console.log('Admin user created in auth:', data.user.id);
+
+    // Store admin profile in KV store
+    await kv.set(`user:${data.user.id}`, {
+      id: data.user.id,
+      email,
+      fullName,
+      role: 'admin',
+      programs: [],
+      assignedCoach: null,
+      createdAt: new Date().toISOString()
+    });
+
+    console.log('Admin profile stored in KV');
+    console.log('=== Admin Creation Complete ===');
+
+    return c.json({ 
+      success: true, 
+      message: 'Admin user created successfully',
+      user: { 
+        id: data.user.id, 
+        email, 
+        fullName, 
+        role: 'admin' 
+      } 
+    });
+  } catch (error) {
+    console.error('Create admin error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Create coach user (admin only)
+app.post("/make-server-9340b842/auth/create-coach", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
+
+    if (authError || !user) {
+      return c.json({ error: 'Invalid session' }, 401);
+    }
+
+    const userProfile = await kv.get(`user:${user.id}`);
+
+    if (userProfile?.role !== 'admin') {
+      return c.json({ error: 'Admin access required' }, 403);
+    }
+
+    const { email, password, fullName } = await c.req.json();
+    
+    if (!email || !password || !fullName) {
+      return c.json({ error: "Missing required fields: email, password, fullName" }, 400);
+    }
+
+    // Create user in Supabase Auth with coach role
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      user_metadata: { 
+        name: fullName,
+        role: 'coach'
+      },
+      email_confirm: true
+    });
+
+    if (error) {
+      return c.json({ error: error.message }, 400);
+    }
+
+    // Store coach profile in KV store
+    await kv.set(`user:${data.user.id}`, {
+      id: data.user.id,
+      email,
+      fullName,
+      role: 'coach',
+      programs: [],
+      createdAt: new Date().toISOString()
+    });
+
+    return c.json({ 
+      success: true, 
+      message: 'Coach user created successfully',
+      coach: { 
+        id: data.user.id, 
+        email, 
+        fullName, 
+        role: 'coach' 
+      } 
+    });
+  } catch (error) {
+    console.error('Create coach error:', error);
+    return c.json({ error: String(error) }, 500);
+  }
+});
 
 // Sign up - Create new user with role
 app.post("/make-server-9340b842/auth/signup", async (c) => {
   try {
-    const { email, password, fullName, role = 'athlete' } = await c.req.json();
+    const { email, password, fullName, username, phoneNumber, role = 'athlete' } = await c.req.json();
     
     if (!email || !password || !fullName) {
       return c.json({ error: "Missing required fields" }, 400);
+    }
+
+    // Check if username already exists (if provided)
+    if (username) {
+      const existingUsers = await kv.getByPrefix('user:');
+      const usernameTaken = existingUsers.some((user: any) => user.username?.toLowerCase() === username.toLowerCase());
+      if (usernameTaken) {
+        return c.json({ error: "Username is already taken" }, 400);
+      }
     }
 
     // Create user in Supabase Auth
@@ -98,6 +314,8 @@ app.post("/make-server-9340b842/auth/signup", async (c) => {
       id: data.user.id,
       email,
       fullName,
+      username: username || null,
+      phoneNumber: phoneNumber || null,
       role,
       programs: [],
       assignedCoach: null,
@@ -109,7 +327,9 @@ app.post("/make-server-9340b842/auth/signup", async (c) => {
       user: { 
         id: data.user.id, 
         email, 
-        fullName, 
+        fullName,
+        username: username || null,
+        phoneNumber: phoneNumber || null,
         role 
       } 
     });
@@ -154,38 +374,6 @@ app.post("/make-server-9340b842/auth/signin", async (c) => {
   } catch (error) {
     console.error('Sign in error:', error);
     return c.json({ error: 'Failed to sign in' }, 500);
-  }
-});
-
-// Get current user session
-app.get("/make-server-9340b842/auth/session", async (c) => {
-  try {
-    const accessToken = c.req.header('Authorization')?.split(' ')[1];
-    
-    if (!accessToken) {
-      return c.json({ error: 'No access token provided' }, 401);
-    }
-
-    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
-
-    if (error || !user) {
-      return c.json({ error: 'Invalid session' }, 401);
-    }
-
-    // Get user profile from KV store
-    const userProfile = await kv.get(`user:${user.id}`);
-
-    return c.json({ 
-      user: userProfile || {
-        id: user.id,
-        email: user.email,
-        fullName: user.user_metadata?.name,
-        role: user.user_metadata?.role || 'athlete'
-      }
-    });
-  } catch (error) {
-    console.error('Session error:', error);
-    return c.json({ error: 'Failed to get session' }, 500);
   }
 });
 
@@ -502,8 +690,8 @@ app.get("/make-server-9340b842/admin/athletes", async (c) => {
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
-    // Validate the token
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    // Use anon client to validate user token
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
     console.log('Auth result - User ID:', user?.id);
     console.log('Auth error:', authError);
@@ -925,6 +1113,97 @@ app.get("/make-server-9340b842/chat/channels", async (c) => {
   }
 });
 
+// Search users (for starting direct messages)
+app.get("/make-server-9340b842/chat/search-users", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user) {
+      return c.json({ error: 'Invalid session' }, 401);
+    }
+
+    const query = c.req.query('q')?.toLowerCase() || '';
+
+    if (!query || query.length < 2) {
+      return c.json({ users: [] });
+    }
+
+    // Get all users
+    const allUsers = await kv.getByPrefix('user:');
+    
+    // Filter users based on search query (exclude current user)
+    const searchResults = allUsers.filter((u: any) => {
+      if (u.id === user.id) return false; // Don't show current user
+      
+      const fullNameMatch = u.fullName?.toLowerCase().includes(query);
+      const emailMatch = u.email?.toLowerCase().includes(query);
+      
+      return fullNameMatch || emailMatch;
+    }).map((u: any) => ({
+      id: u.id,
+      fullName: u.fullName,
+      email: u.email,
+      role: u.role
+    }));
+
+    // Limit to 10 results
+    return c.json({ users: searchResults.slice(0, 10) });
+  } catch (error) {
+    console.error('Search users error:', error);
+    return c.json({ error: 'Failed to search users' }, 500);
+  }
+});
+
+// Create or get direct message channel
+app.post("/make-server-9340b842/chat/dm-channel", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user) {
+      return c.json({ error: 'Invalid session' }, 401);
+    }
+
+    const { recipientId } = await c.req.json();
+
+    if (!recipientId) {
+      return c.json({ error: 'Recipient ID required' }, 400);
+    }
+
+    // Get recipient profile
+    const recipient = await kv.get(`user:${recipientId}`);
+
+    if (!recipient) {
+      return c.json({ error: 'Recipient not found' }, 404);
+    }
+
+    // Create channel object
+    const channel = {
+      id: `dm:${recipientId}`,
+      name: recipient.fullName,
+      description: `Direct messages with ${recipient.fullName}`,
+      type: 'direct',
+      recipientId: recipientId
+    };
+
+    return c.json({ success: true, channel });
+  } catch (error) {
+    console.error('Create DM channel error:', error);
+    return c.json({ error: 'Failed to create DM channel' }, 500);
+  }
+});
+
 // ============= CONTRACT ROUTES =============
 
 // Sign contract for enrollment
@@ -1116,13 +1395,21 @@ app.get("/make-server-9340b842/admin/exercises/categories", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     
+    console.log('=== Categories Request ===');
+    console.log('Token exists:', !!accessToken);
+    
     if (!accessToken) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    // Use anon client to validate user token
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
+
+    console.log('User ID:', user?.id);
+    console.log('Auth error:', authError);
 
     if (authError || !user) {
+      console.error('Auth failed:', authError?.message);
       return c.json({ error: 'Invalid session' }, 401);
     }
 
@@ -1164,24 +1451,36 @@ app.get("/make-server-9340b842/admin/exercises", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     
+    console.log('=== Get Exercises Request ===');
+    console.log('Token exists:', !!accessToken);
+    
     if (!accessToken) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    // Use anon client to validate user token
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
+
+    console.log('User ID:', user?.id);
+    console.log('Auth error:', authError);
 
     if (authError || !user) {
-      return c.json({ error: 'Invalid session' }, 401);
+      console.error('Auth failed:', authError?.message);
+      return c.json({ error: 'Invalid session', details: authError?.message }, 401);
     }
 
     // Check if user is admin
     const adminProfile = await kv.get(`user:${user.id}`);
+    console.log('User profile:', adminProfile);
+    
     if (adminProfile?.role !== 'admin') {
       return c.json({ error: 'Admin access required' }, 403);
     }
 
     // Get all exercises from library
     const exercises = await kv.getByPrefix('exercise-library:');
+    
+    console.log('Exercises found:', exercises.length);
     
     // Sort by creation date (newest first)
     exercises.sort((a: any, b: any) => 
@@ -1200,13 +1499,17 @@ app.post("/make-server-9340b842/admin/exercises", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     
+    console.log('=== Create Exercise Request ===');
+    
     if (!accessToken) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    // Use anon client to validate user token
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
     if (authError || !user) {
+      console.error('Auth failed:', authError?.message);
       return c.json({ error: 'Invalid session' }, 401);
     }
 
@@ -1217,6 +1520,8 @@ app.post("/make-server-9340b842/admin/exercises", async (c) => {
     }
 
     const { name, description, category, url, mediaUrl, mediaType } = await c.req.json();
+
+    console.log('Creating exercise:', { name, category });
 
     if (!name || !category) {
       return c.json({ error: 'Name and category required' }, 400);
@@ -1231,6 +1536,7 @@ app.post("/make-server-9340b842/admin/exercises", async (c) => {
         id: categoryId,
         name: category
       });
+      console.log('Created new category:', category);
     }
 
     const exerciseId = `exercise-library:${Date.now()}`;
@@ -1248,6 +1554,7 @@ app.post("/make-server-9340b842/admin/exercises", async (c) => {
     };
 
     await kv.set(exerciseId, exercise);
+    console.log('Exercise created:', exerciseId);
 
     return c.json({ success: true, exercise });
   } catch (error) {
@@ -1265,7 +1572,8 @@ app.post("/make-server-9340b842/admin/exercises/upload", async (c) => {
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    // Use anon client to validate user token
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
     if (authError || !user) {
       return c.json({ error: 'Invalid session' }, 401);
@@ -1320,7 +1628,8 @@ app.post("/make-server-9340b842/admin/exercises/:exerciseId/assign", async (c) =
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+    // Use anon client to validate user token
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
     if (authError || !user) {
       return c.json({ error: 'Invalid session' }, 401);
@@ -1378,6 +1687,99 @@ app.post("/make-server-9340b842/admin/exercises/:exerciseId/assign", async (c) =
   } catch (error) {
     console.error('Assign exercise error:', error);
     return c.json({ error: 'Failed to assign exercise' }, 500);
+  }
+});
+
+// Register program and coach routes
+registerProgramRoutes(app);
+
+// ============= APP SETTINGS / LOGO ROUTES =============
+
+// Upload app logo (admin only)
+app.post("/make-server-9340b842/admin/upload-logo", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
+
+    if (authError || !user) {
+      return c.json({ error: 'Invalid session' }, 401);
+    }
+
+    const userProfile = await kv.get(`user:${user.id}`);
+    
+    if (userProfile?.role !== 'admin') {
+      return c.json({ error: 'Admin access required' }, 403);
+    }
+
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File;
+
+    if (!file) {
+      return c.json({ error: 'No file provided' }, 400);
+    }
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      return c.json({ error: 'File must be an image' }, 400);
+    }
+
+    // Upload to Supabase Storage
+    const fileExt = file.name.split('.').pop();
+    const fileName = `logo-${Date.now()}.${fileExt}`;
+    const fileBuffer = await file.arrayBuffer();
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('make-9340b842-app-assets')
+      .upload(fileName, fileBuffer, {
+        contentType: file.type,
+        upsert: true
+      });
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      return c.json({ error: 'Failed to upload logo' }, 500);
+    }
+
+    // Get signed URL with long expiry (10 years)
+    const { data: signedUrlData } = await supabase.storage
+      .from('make-9340b842-app-assets')
+      .createSignedUrl(fileName, 60 * 60 * 24 * 365 * 10); // 10 years
+
+    const logoUrl = signedUrlData?.signedUrl;
+
+    // Store logo URL in KV
+    await kv.set('app:logo', {
+      url: logoUrl,
+      fileName: fileName,
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: user.id
+    });
+
+    return c.json({ success: true, logoUrl });
+  } catch (error) {
+    console.error('Upload logo error:', error);
+    return c.json({ error: 'Failed to upload logo' }, 500);
+  }
+});
+
+// Get app logo (public endpoint)
+app.get("/make-server-9340b842/logo", async (c) => {
+  try {
+    const logoData = await kv.get('app:logo');
+    
+    if (!logoData || !logoData.url) {
+      return c.json({ logoUrl: null });
+    }
+
+    return c.json({ logoUrl: logoData.url });
+  } catch (error) {
+    console.error('Get logo error:', error);
+    return c.json({ error: 'Failed to get logo' }, 500);
   }
 });
 

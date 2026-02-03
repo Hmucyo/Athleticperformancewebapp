@@ -3,6 +3,7 @@ import { Dumbbell, Users, Trophy, Calendar, Plus, X, ArrowRight, FileText } from
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { PaymentModal } from '../PaymentModal';
 import { ContractModal } from '../ContractModal';
+import { CustomProgramModal } from '../CustomProgramModal';
 
 interface ProgramsTabProps {
   user: any;
@@ -81,7 +82,9 @@ const STANDARD_PROGRAMS = [
 
 export function ProgramsTab({ user }: ProgramsTabProps) {
   const [enrolledPrograms, setEnrolledPrograms] = useState<any[]>([]);
+  const [adminPrograms, setAdminPrograms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [programsLoading, setProgramsLoading] = useState(true);
   const [selectedProgram, setSelectedProgram] = useState<any>(null);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [showCustomModal, setShowCustomModal] = useState(false);
@@ -94,18 +97,57 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
   // Custom program customization state
   const [customizationStep, setCustomizationStep] = useState(1);
   const [customProgram, setCustomProgram] = useState({
-    name: '',
-    goals: [] as string[],
-    experienceLevel: '',
-    daysPerWeek: 3,
-    sessionDuration: 60,
-    focusAreas: [] as string[],
-    equipment: [] as string[]
+    deliveryType: '', // 'online' or 'in-person'
+    programCategory: '', // 'sport-performance' or 'fitness-wellness'
+    // Common fields
+    age: '',
+    height: '',
+    weight: '',
+    sessionsPerWeek: '',
+    daysPerWeek: '',
+    timeAvailable: '',
+    // Sport Performance specific
+    sport: '',
+    injuryHistory: '',
+    performanceGoals: [] as string[],
+    // Fitness & Wellness specific
+    healthHistory: '',
+    fitnessGoals: [] as string[],
+    // Online specific
+    equipmentAccess: '', // 'gym', 'home', 'none'
+    gymName: '',
+    homeEquipment: [] as string[],
+    // Other
+    otherInformation: ''
   });
 
   useEffect(() => {
     fetchEnrolledPrograms();
+    fetchAdminPrograms();
   }, []);
+
+  const fetchAdminPrograms = async () => {
+    try {
+      setProgramsLoading(true);
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/programs/public`,
+        {
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`
+          }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setAdminPrograms(data.programs || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch admin programs:', error);
+    } finally {
+      setProgramsLoading(false);
+    }
+  };
 
   const fetchEnrolledPrograms = async () => {
     try {
@@ -172,8 +214,31 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
   };
 
   const handleEnrollCustom = async () => {
-    if (!customProgram.name || customProgram.goals.length === 0) {
+    // Validate required fields based on the selected path
+    if (!customProgram.deliveryType || !customProgram.programCategory) {
       alert('Please complete all customization steps');
+      return;
+    }
+
+    if (!customProgram.age || !customProgram.height || !customProgram.weight) {
+      alert('Please provide your age, height, and weight');
+      return;
+    }
+
+    if (customProgram.programCategory === 'sport-performance') {
+      if (!customProgram.sport || customProgram.performanceGoals.length === 0) {
+        alert('Please complete sport performance details');
+        return;
+      }
+    } else {
+      if (customProgram.fitnessGoals.length === 0) {
+        alert('Please select at least one fitness goal');
+        return;
+      }
+    }
+
+    if (customProgram.deliveryType === 'online' && !customProgram.equipmentAccess) {
+      alert('Please specify your equipment access');
       return;
     }
 
@@ -191,7 +256,7 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
           },
           body: JSON.stringify({
             programId: 'custom-program',
-            programName: customProgram.name,
+            programName: `Custom ${customProgram.programCategory === 'sport-performance' ? 'Sport Performance' : 'Fitness & Wellness'} - ${customProgram.deliveryType}`,
             customization: customProgram
           })
         }
@@ -202,13 +267,23 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
         setShowCustomModal(false);
         setCustomizationStep(1);
         setCustomProgram({
-          name: '',
-          goals: [],
-          experienceLevel: '',
-          daysPerWeek: 3,
-          sessionDuration: 60,
-          focusAreas: [],
-          equipment: []
+          deliveryType: '',
+          programCategory: '',
+          age: '',
+          height: '',
+          weight: '',
+          sessionsPerWeek: '',
+          daysPerWeek: '',
+          timeAvailable: '',
+          sport: '',
+          injuryHistory: '',
+          performanceGoals: [],
+          healthHistory: '',
+          fitnessGoals: [],
+          equipmentAccess: '',
+          gymName: '',
+          homeEquipment: [],
+          otherInformation: ''
         });
         fetchEnrolledPrograms();
       } else {
@@ -221,33 +296,6 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
     } finally {
       setEnrolling(false);
     }
-  };
-
-  const toggleGoal = (goal: string) => {
-    setCustomProgram(prev => ({
-      ...prev,
-      goals: prev.goals.includes(goal)
-        ? prev.goals.filter(g => g !== goal)
-        : [...prev.goals, goal]
-    }));
-  };
-
-  const toggleFocusArea = (area: string) => {
-    setCustomProgram(prev => ({
-      ...prev,
-      focusAreas: prev.focusAreas.includes(area)
-        ? prev.focusAreas.filter(a => a !== area)
-        : [...prev.focusAreas, area]
-    }));
-  };
-
-  const toggleEquipment = (item: string) => {
-    setCustomProgram(prev => ({
-      ...prev,
-      equipment: prev.equipment.includes(item)
-        ? prev.equipment.filter(e => e !== item)
-        : [...prev.equipment, item]
-    }));
   };
 
   const isEnrolled = (programId: string) => {
@@ -300,73 +348,125 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
         </div>
       )}
 
-      {/* Standard Programs */}
+      {/* Admin-Created Programs */}
       <div className="mb-12">
-        <h2 className="text-white text-2xl font-semibold mb-4">Standard Programs</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {STANDARD_PROGRAMS.map((program) => {
-            const Icon = program.icon;
-            const enrolled = isEnrolled(program.id);
-            
-            return (
-              <div
-                key={program.id}
-                className={`bg-gradient-to-br ${program.color} bg-opacity-10 border border-white/10 rounded-lg p-6 hover:border-white/20 transition-all ${
-                  enrolled ? 'opacity-60' : ''
-                }`}
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className={`p-3 bg-gradient-to-br ${program.color} rounded-lg`}>
-                    <Icon className="text-white" size={24} />
-                  </div>
-                  {enrolled && (
-                    <span className="px-3 py-1 bg-green-500/20 text-green-400 text-xs rounded-full">
-                      Enrolled
-                    </span>
-                  )}
-                </div>
-
-                <h3 className="text-white text-2xl font-bold mb-2">{program.name}</h3>
-                <p className="text-gray-300 text-sm mb-4 line-clamp-2">{program.description}</p>
-
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="bg-black/30 rounded-lg p-3">
-                    <p className="text-gray-400 text-xs">Duration</p>
-                    <p className="text-white font-semibold">{program.duration}</p>
-                  </div>
-                  <div className="bg-black/30 rounded-lg p-3">
-                    <p className="text-gray-400 text-xs">Sessions</p>
-                    <p className="text-white font-semibold">{program.sessions}</p>
-                  </div>
-                  <div className="bg-black/30 rounded-lg p-3">
-                    <p className="text-gray-400 text-xs">Intensity</p>
-                    <p className="text-white font-semibold">{program.intensity}</p>
-                  </div>
-                  <div className="bg-black/30 rounded-lg p-3">
-                    <p className="text-gray-400 text-xs">Price</p>
-                    <p className="text-white font-semibold">{program.price}</p>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => {
-                    setSelectedProgram(program);
-                    setShowEnrollModal(true);
-                  }}
-                  disabled={enrolled}
-                  className={`w-full py-3 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 ${
-                    enrolled
-                      ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                      : `bg-gradient-to-r ${program.color} text-white hover:opacity-90`
+        <h2 className="text-white text-2xl font-semibold mb-4">Available Programs</h2>
+        {programsLoading ? (
+          <div className="text-gray-400 text-center py-12">Loading programs...</div>
+        ) : adminPrograms.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {adminPrograms.map((program) => {
+              const enrolled = isEnrolled(program.id);
+              const gradients = [
+                'from-blue-600 to-cyan-600',
+                'from-purple-600 to-pink-600',
+                'from-green-600 to-teal-600',
+                'from-orange-600 to-red-600',
+                'from-indigo-600 to-purple-600',
+                'from-yellow-600 to-orange-600'
+              ];
+              const gradientClass = gradients[Math.abs(program.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0)) % gradients.length];
+              
+              return (
+                <div
+                  key={program.id}
+                  className={`bg-gray-900 border border-white/10 rounded-lg overflow-hidden hover:border-white/20 transition-all ${
+                    enrolled ? 'opacity-60' : ''
                   }`}
                 >
-                  {enrolled ? 'Already Enrolled' : 'View Details'}
-                  {!enrolled && <ArrowRight size={16} />}
-                </button>
-              </div>
-            );
-          })}
-        </div>
+                  {/* Program Image or Gradient */}
+                  <div className="relative h-48 overflow-hidden">
+                    {program.imageUrl ? (
+                      <img
+                        src={program.imageUrl}
+                        alt={program.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className={`w-full h-full bg-gradient-to-br ${gradientClass} flex items-center justify-center`}>
+                        <h3 className="text-white text-2xl font-bold text-center px-6">{program.name}</h3>
+                      </div>
+                    )}
+                    {enrolled && (
+                      <span className="absolute top-3 right-3 px-3 py-1 bg-green-500/90 text-white text-xs rounded-full">
+                        Enrolled
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Program Details */}
+                  <div className="p-6">
+                    {program.imageUrl && (
+                      <h3 className="text-white text-2xl font-bold mb-2">{program.name}</h3>
+                    )}
+                    <p className="text-gray-300 text-sm mb-4 line-clamp-2">{program.description}</p>
+
+                    {/* Program Meta Info */}
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div className="bg-black/30 rounded-lg p-3">
+                        <p className="text-gray-400 text-xs">Delivery</p>
+                        <p className="text-white font-semibold capitalize">{program.delivery}</p>
+                      </div>
+                      <div className="bg-black/30 rounded-lg p-3">
+                        <p className="text-gray-400 text-xs">Format</p>
+                        <p className="text-white font-semibold capitalize">{program.format}</p>
+                      </div>
+                      <div className="bg-black/30 rounded-lg p-3">
+                        <p className="text-gray-400 text-xs">Category</p>
+                        <p className="text-white font-semibold capitalize">{program.category?.replace('-', ' ')}</p>
+                      </div>
+                      <div className="bg-black/30 rounded-lg p-3">
+                        <p className="text-gray-400 text-xs">Price</p>
+                        <p className="text-white font-semibold">${program.price}</p>
+                      </div>
+                    </div>
+
+                    {/* Additional Info */}
+                    {(program.duration || program.maxParticipants || program.coachName) && (
+                      <div className="space-y-2 mb-4 text-sm">
+                        {program.duration && (
+                          <p className="text-gray-400">
+                            <span className="text-white font-medium">Duration:</span> {program.duration}
+                          </p>
+                        )}
+                        {program.maxParticipants && (
+                          <p className="text-gray-400">
+                            <span className="text-white font-medium">Max Participants:</span> {program.maxParticipants}
+                          </p>
+                        )}
+                        {program.coachName && (
+                          <p className="text-gray-400">
+                            <span className="text-white font-medium">Coach:</span> {program.coachName}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setSelectedProgram(program);
+                        setShowEnrollModal(true);
+                      }}
+                      disabled={enrolled}
+                      className={`w-full py-3 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 ${
+                        enrolled
+                          ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                          : `bg-gradient-to-r ${gradientClass} text-white hover:opacity-90`
+                      }`}
+                    >
+                      {enrolled ? 'Already Enrolled' : 'View Details'}
+                      {!enrolled && <ArrowRight size={16} />}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-gray-500 text-center py-12">
+            No programs available yet. Check back soon!
+          </div>
+        )}
       </div>
 
       {/* Create Custom Program Card */}
@@ -389,7 +489,7 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
         </div>
       </div>
 
-      {/* Standard Program Enrollment Modal */}
+      {/* Program Enrollment Modal */}
       {showEnrollModal && selectedProgram && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div 
@@ -405,36 +505,68 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
               <X size={24} />
             </button>
 
-            <div className={`inline-flex p-4 bg-gradient-to-br ${selectedProgram.color} rounded-lg mb-4`}>
-              {selectedProgram.icon && <selectedProgram.icon className="text-white" size={32} />}
-            </div>
+            {/* Program Image if available */}
+            {selectedProgram.imageUrl && (
+              <img
+                src={selectedProgram.imageUrl}
+                alt={selectedProgram.name}
+                className="w-full h-64 object-cover rounded-lg mb-6"
+              />
+            )}
 
             <h2 className="text-white text-3xl font-bold mb-4">{selectedProgram.name}</h2>
             <p className="text-gray-300 mb-6">{selectedProgram.description}</p>
 
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div className="bg-black/30 rounded-lg p-4">
-                <p className="text-gray-400 text-sm mb-1">Duration</p>
-                <p className="text-white font-semibold text-lg">{selectedProgram.duration}</p>
+                <p className="text-gray-400 text-sm mb-1">Delivery</p>
+                <p className="text-white font-semibold text-lg capitalize">{selectedProgram.delivery || 'N/A'}</p>
               </div>
               <div className="bg-black/30 rounded-lg p-4">
-                <p className="text-gray-400 text-sm mb-1">Sessions</p>
-                <p className="text-white font-semibold text-lg">{selectedProgram.sessions}</p>
+                <p className="text-gray-400 text-sm mb-1">Format</p>
+                <p className="text-white font-semibold text-lg capitalize">{selectedProgram.format || 'N/A'}</p>
               </div>
               <div className="bg-black/30 rounded-lg p-4">
-                <p className="text-gray-400 text-sm mb-1">Intensity</p>
-                <p className="text-white font-semibold text-lg">{selectedProgram.intensity}</p>
+                <p className="text-gray-400 text-sm mb-1">Category</p>
+                <p className="text-white font-semibold text-lg capitalize">{selectedProgram.category?.replace('-', ' ') || 'N/A'}</p>
               </div>
               <div className="bg-black/30 rounded-lg p-4">
-                <p className="text-gray-400 text-sm mb-1">Investment</p>
-                <p className="text-white font-semibold text-lg">{selectedProgram.price}</p>
+                <p className="text-gray-400 text-sm mb-1">Price</p>
+                <p className="text-white font-semibold text-lg">${selectedProgram.price || 'N/A'}</p>
               </div>
             </div>
 
-            <div className="mb-6">
-              <h3 className="text-white font-semibold mb-3">What's Included:</h3>
-              <ul className="space-y-2">
-                {selectedProgram.features.map((feature: string, idx: number) => (
+            {(selectedProgram.duration || selectedProgram.maxParticipants || selectedProgram.coachName) && (
+              <div className="mb-6 bg-white/5 border border-white/10 rounded-lg p-4">
+                <h3 className="text-white font-semibold mb-3">Program Details:</h3>
+                <div className="space-y-2">
+                  {selectedProgram.duration && (
+                    <p className="text-gray-300 flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                      Duration: {selectedProgram.duration}
+                    </p>
+                  )}
+                  {selectedProgram.maxParticipants && (
+                    <p className="text-gray-300 flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                      Max Participants: {selectedProgram.maxParticipants}
+                    </p>
+                  )}
+                  {selectedProgram.coachName && (
+                    <p className="text-gray-300 flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                      Coach: {selectedProgram.coachName}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {selectedProgram.features && (
+              <div className="mb-6">
+                <h3 className="text-white font-semibold mb-3">What's Included:</h3>
+                <ul className="space-y-2">
+                  {selectedProgram.features.map((feature: string, idx: number) => (
                   <li key={idx} className="flex items-center gap-2 text-gray-300">
                     <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
                     {feature}
@@ -442,11 +574,12 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
                 ))}
               </ul>
             </div>
+            )}
 
             <button
               onClick={handleEnrollStandard}
               disabled={enrolling}
-              className={`w-full py-4 bg-gradient-to-r ${selectedProgram.color} text-white rounded-lg hover:opacity-90 transition-all font-semibold text-lg ${
+              className={`w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all font-semibold text-lg ${
                 enrolling ? 'opacity-50 cursor-not-allowed' : ''
               }`}
             >
@@ -458,256 +591,15 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
 
       {/* Custom Program Modal */}
       {showCustomModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div 
-            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            onClick={() => setShowCustomModal(false)}
-          ></div>
-          
-          <div className="relative bg-gray-900 border border-white/20 rounded-lg w-full max-w-3xl p-8 max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => setShowCustomModal(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
-            >
-              <X size={24} />
-            </button>
-
-            <div className="mb-6">
-              <h2 className="text-white text-3xl font-bold mb-2">Create Custom Program</h2>
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <span className={customizationStep >= 1 ? 'text-blue-500' : ''}>Step 1</span>
-                <span>→</span>
-                <span className={customizationStep >= 2 ? 'text-blue-500' : ''}>Step 2</span>
-                <span>→</span>
-                <span className={customizationStep >= 3 ? 'text-blue-500' : ''}>Step 3</span>
-                <span>→</span>
-                <span className={customizationStep >= 4 ? 'text-blue-500' : ''}>Step 4</span>
-              </div>
-            </div>
-
-            {/* Step 1: Basic Info */}
-            {customizationStep === 1 && (
-              <div>
-                <h3 className="text-white text-xl font-semibold mb-4">Basic Information</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-white mb-2">Program Name</label>
-                    <input
-                      type="text"
-                      value={customProgram.name}
-                      onChange={(e) => setCustomProgram({ ...customProgram, name: e.target.value })}
-                      placeholder="e.g., My Summer Training Plan"
-                      className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-white mb-2">Training Goals (Select all that apply)</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {['Strength', 'Endurance', 'Speed', 'Flexibility', 'Weight Loss', 'Muscle Gain'].map((goal) => (
-                        <button
-                          key={goal}
-                          type="button"
-                          onClick={() => toggleGoal(goal)}
-                          className={`p-3 rounded-lg border-2 transition-all ${
-                            customProgram.goals.includes(goal)
-                              ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                              : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20'
-                          }`}
-                        >
-                          {goal}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-white mb-2">Experience Level</label>
-                    <div className="grid grid-cols-3 gap-3">
-                      {['Beginner', 'Intermediate', 'Advanced'].map((level) => (
-                        <button
-                          key={level}
-                          type="button"
-                          onClick={() => setCustomProgram({ ...customProgram, experienceLevel: level })}
-                          className={`p-3 rounded-lg border-2 transition-all ${
-                            customProgram.experienceLevel === level
-                              ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                              : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20'
-                          }`}
-                        >
-                          {level}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setCustomizationStep(2)}
-                  disabled={!customProgram.name || customProgram.goals.length === 0 || !customProgram.experienceLevel}
-                  className="w-full mt-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next Step
-                </button>
-              </div>
-            )}
-
-            {/* Step 2: Schedule */}
-            {customizationStep === 2 && (
-              <div>
-                <h3 className="text-white text-xl font-semibold mb-4">Training Schedule</h3>
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-white mb-2">Days Per Week</label>
-                    <div className="flex items-center gap-4">
-                      <input
-                        type="range"
-                        min="1"
-                        max="7"
-                        value={customProgram.daysPerWeek}
-                        onChange={(e) => setCustomProgram({ ...customProgram, daysPerWeek: parseInt(e.target.value) })}
-                        className="flex-1"
-                      />
-                      <span className="text-white text-2xl font-bold w-12 text-center">{customProgram.daysPerWeek}</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-white mb-2">Session Duration (minutes)</label>
-                    <div className="flex items-center gap-4">
-                      <input
-                        type="range"
-                        min="30"
-                        max="120"
-                        step="15"
-                        value={customProgram.sessionDuration}
-                        onChange={(e) => setCustomProgram({ ...customProgram, sessionDuration: parseInt(e.target.value) })}
-                        className="flex-1"
-                      />
-                      <span className="text-white text-2xl font-bold w-16 text-center">{customProgram.sessionDuration}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={() => setCustomizationStep(1)}
-                    className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-all font-semibold"
-                  >
-                    Back
-                  </button>
-                  <button
-                    onClick={() => setCustomizationStep(3)}
-                    className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all font-semibold"
-                  >
-                    Next Step
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Step 3: Focus Areas */}
-            {customizationStep === 3 && (
-              <div>
-                <h3 className="text-white text-xl font-semibold mb-4">Focus Areas</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-white mb-2">Body Areas (Select all that apply)</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {['Upper Body', 'Lower Body', 'Core', 'Full Body', 'Cardio', 'Mobility'].map((area) => (
-                        <button
-                          key={area}
-                          type="button"
-                          onClick={() => toggleFocusArea(area)}
-                          className={`p-3 rounded-lg border-2 transition-all ${
-                            customProgram.focusAreas.includes(area)
-                              ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                              : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20'
-                          }`}
-                        >
-                          {area}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={() => setCustomizationStep(2)}
-                    className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-all font-semibold"
-                  >
-                    Back
-                  </button>
-                  <button
-                    onClick={() => setCustomizationStep(4)}
-                    disabled={customProgram.focusAreas.length === 0}
-                    className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Next Step
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Step 4: Equipment */}
-            {customizationStep === 4 && (
-              <div>
-                <h3 className="text-white text-xl font-semibold mb-4">Available Equipment</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-white mb-2">What equipment do you have access to?</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {['Dumbbells', 'Barbells', 'Resistance Bands', 'Kettlebells', 'Pull-up Bar', 'Bodyweight Only'].map((item) => (
-                        <button
-                          key={item}
-                          type="button"
-                          onClick={() => toggleEquipment(item)}
-                          className={`p-3 rounded-lg border-2 transition-all ${
-                            customProgram.equipment.includes(item)
-                              ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                              : 'border-white/10 bg-white/5 text-gray-400 hover:border-white/20'
-                          }`}
-                        >
-                          {item}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Summary */}
-                  <div className="bg-white/5 border border-white/10 rounded-lg p-6 mt-6">
-                    <h4 className="text-white font-semibold mb-3">Program Summary</h4>
-                    <div className="space-y-2 text-sm">
-                      <p className="text-gray-300"><span className="text-gray-400">Name:</span> {customProgram.name}</p>
-                      <p className="text-gray-300"><span className="text-gray-400">Goals:</span> {customProgram.goals.join(', ')}</p>
-                      <p className="text-gray-300"><span className="text-gray-400">Level:</span> {customProgram.experienceLevel}</p>
-                      <p className="text-gray-300"><span className="text-gray-400">Schedule:</span> {customProgram.daysPerWeek} days/week, {customProgram.sessionDuration} min/session</p>
-                      <p className="text-gray-300"><span className="text-gray-400">Focus:</span> {customProgram.focusAreas.join(', ')}</p>
-                      <p className="text-gray-300"><span className="text-gray-400">Equipment:</span> {customProgram.equipment.join(', ')}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={() => setCustomizationStep(3)}
-                    className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-all font-semibold"
-                  >
-                    Back
-                  </button>
-                  <button
-                    onClick={handleEnrollCustom}
-                    disabled={enrolling || customProgram.equipment.length === 0}
-                    className="flex-1 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {enrolling ? 'Creating...' : 'Create Program'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        <CustomProgramModal
+          onClose={() => setShowCustomModal(false)}
+          onEnroll={handleEnrollCustom}
+          enrolling={enrolling}
+          customizationStep={customizationStep}
+          setCustomizationStep={setCustomizationStep}
+          customProgram={customProgram}
+          setCustomProgram={setCustomProgram}
+        />
       )}
     </div>
   );

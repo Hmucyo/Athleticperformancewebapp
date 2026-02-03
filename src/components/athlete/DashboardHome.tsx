@@ -11,9 +11,11 @@ export function DashboardHome({ user }: DashboardHomeProps) {
   const [exercises, setExercises] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState('day'); // day, week, month, 3months, 6months, year
+  const [suggestedPrograms, setSuggestedPrograms] = useState<any[]>([]);
 
   useEffect(() => {
     fetchExercises();
+    fetchSuggestedPrograms();
   }, []);
 
   const fetchExercises = async () => {
@@ -37,6 +39,28 @@ export function DashboardHome({ user }: DashboardHomeProps) {
       console.error('Failed to fetch exercises:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchSuggestedPrograms = async () => {
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/programs/public`,
+        {
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`
+          }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        // Show up to 3 random programs as suggestions
+        const shuffled = [...(data.programs || [])].sort(() => 0.5 - Math.random());
+        setSuggestedPrograms(shuffled.slice(0, 3));
+      }
+    } catch (error) {
+      console.error('Failed to fetch suggested programs:', error);
     }
   };
 
@@ -170,24 +194,20 @@ export function DashboardHome({ user }: DashboardHomeProps) {
         <div className="bg-gray-900 border border-white/10 rounded-lg p-6">
           <h2 className="text-white text-xl font-semibold mb-4">Suggested for You</h2>
           <div className="space-y-3">
-            <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/30 rounded-lg p-4">
-              <h3 className="text-white font-semibold mb-1">Sports Performance: One-on-One</h3>
-              <p className="text-gray-300 text-sm mb-3">
-                Personalized speed and power training
-              </p>
-              <button className="text-blue-400 text-sm hover:text-blue-300 transition-colors">
-                Learn More →
-              </button>
-            </div>
-            <div className="bg-gradient-to-r from-green-600/20 to-blue-600/20 border border-green-500/30 rounded-lg p-4">
-              <h3 className="text-white font-semibold mb-1">Personal Training - Bootcamp</h3>
-              <p className="text-gray-300 text-sm mb-3">
-                High-energy group training sessions
-              </p>
-              <button className="text-green-400 text-sm hover:text-green-300 transition-colors">
-                Learn More →
-              </button>
-            </div>
+            {suggestedPrograms.map((program) => (
+              <div 
+                key={program.id}
+                className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/30 rounded-lg p-4"
+              >
+                <h3 className="text-white font-semibold mb-1">{program.name}</h3>
+                <p className="text-gray-300 text-sm mb-3">
+                  {program.description}
+                </p>
+                <button className="text-blue-400 text-sm hover:text-blue-300 transition-colors">
+                  Learn More →
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       </div>

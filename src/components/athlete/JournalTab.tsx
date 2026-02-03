@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Plus, Edit2, Trash2, Image, Video, FileText, X, Smile, Meh, Frown } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Plus, Edit2, Trash2, Image, Video, FileText, X, Smile, Meh, Frown, Camera, Mic, VideoIcon, Upload, Trash } from "lucide-react";
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 
 interface JournalTabProps {
@@ -12,6 +12,12 @@ export function JournalTab({ user }: JournalTabProps) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<any>(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingType, setRecordingType] = useState<'video' | 'audio' | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -72,8 +78,21 @@ export function JournalTab({ user }: JournalTabProps) {
       );
 
       if (response.ok) {
+        const data = await response.json();
+        const entryId = data.entry?.id;
+
+        // Upload media files if any
+        if (entryId && mediaFiles.length > 0) {
+          setUploadingMedia(true);
+          for (const file of mediaFiles) {
+            await handleMediaUpload(entryId, file);
+          }
+          setUploadingMedia(false);
+        }
+
         setShowCreateModal(false);
         setFormData({ title: '', content: '', mood: '', tags: [] });
+        setMediaFiles([]);
         fetchEntries();
       } else {
         const data = await response.json();
@@ -166,6 +185,124 @@ export function JournalTab({ user }: JournalTabProps) {
       default:
         return null;
     }
+  };
+
+  const startRecording = async (type: 'video' | 'audio') => {
+    try {
+      const constraints = type === 'video' 
+        ? { video: true, audio: true }
+        : { audio: true };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+
+      if (type === 'video' && videoPreviewRef.current) {
+        videoPreviewRef.current.srcObject = stream;
+        videoPreviewRef.current.play();
+      }
+
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      const chunks: BlobPart[] = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { 
+          type: type === 'video' ? 'video/webm' : 'audio/webm' 
+        });
+        const file = new File(
+          [blob], 
+          `${type}-${Date.now()}.webm`, 
+          { type: blob.type }
+        );
+        setMediaFiles(prev => [...prev, file]);
+        
+        // Stop all tracks
+        stream.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+        
+        if (videoPreviewRef.current) {
+          videoPreviewRef.current.srcObject = null;
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingType(type);
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      alert('Failed to access camera/microphone. Please grant permissions.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      setRecordingType(null);
+    }
+  };
+
+  const capturePhoto = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      await video.play();
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(video, 0, 0);
+
+      stream.getTracks().forEach(track => track.stop());
+
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+          setMediaFiles(prev => [...prev, file]);
+        }
+      }, 'image/jpeg');
+    } catch (error) {
+      console.error('Error capturing photo:', error);
+      alert('Failed to access camera. Please grant permissions.');
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    setMediaFiles(prev => [...prev, ...files]);
+  };
+
+  const removeMediaFile = (index: number) => {
+    setMediaFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const getMediaPreview = (file: File) => {
+    const url = URL.createObjectURL(file);
+    
+    if (file.type.startsWith('image/')) {
+      return <img src={url} alt="Preview" className="w-full h-24 object-cover rounded" />;
+    } else if (file.type.startsWith('video/')) {
+      return <video src={url} className="w-full h-24 object-cover rounded bg-black" />;
+    } else if (file.type.startsWith('audio/')) {
+      return (
+        <div className="w-full h-24 bg-blue-500/20 rounded flex items-center justify-center">
+          <Mic className="text-blue-400" size={32} />
+        </div>
+      );
+    }
+    return (
+      <div className="w-full h-24 bg-white/5 rounded flex items-center justify-center">
+        <FileText className="text-gray-400" size={32} />
+      </div>
+    );
   };
 
   return (
@@ -304,11 +441,98 @@ export function JournalTab({ user }: JournalTabProps) {
                 </div>
               </div>
 
+              <div className="mb-4">
+                <label className="block text-white mb-2">Add Media</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-center cursor-pointer transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*,video/*,audio/*"
+                      className="hidden"
+                      onChange={handleFileSelect}
+                      multiple
+                    />
+                    <Upload size={18} />
+                    <span className="text-sm">Upload Files</span>
+                  </label>
+                  
+                  <button
+                    type="button"
+                    onClick={() => isRecording && recordingType === 'video' ? stopRecording() : startRecording('video')}
+                    className={`flex items-center justify-center gap-2 py-3 rounded-lg text-center transition-colors ${
+                      isRecording && recordingType === 'video' 
+                        ? 'bg-red-500/20 text-red-400 border-2 border-red-500 animate-pulse' 
+                        : 'bg-red-600 hover:bg-red-700 text-white'
+                    }`}
+                  >
+                    <VideoIcon size={18} />
+                    <span className="text-sm">{isRecording && recordingType === 'video' ? 'Stop Recording' : 'Record Video'}</span>
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => isRecording && recordingType === 'audio' ? stopRecording() : startRecording('audio')}
+                    className={`flex items-center justify-center gap-2 py-3 rounded-lg text-center transition-colors ${
+                      isRecording && recordingType === 'audio' 
+                        ? 'bg-red-500/20 text-red-400 border-2 border-red-500 animate-pulse' 
+                        : 'bg-purple-600 hover:bg-purple-700 text-white'
+                    }`}
+                  >
+                    <Mic size={18} />
+                    <span className="text-sm">{isRecording && recordingType === 'audio' ? 'Stop Recording' : 'Record Audio'}</span>
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={capturePhoto}
+                    className="flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg text-center transition-colors"
+                  >
+                    <Camera size={18} />
+                    <span className="text-sm">Take Photo</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Video Preview for Recording */}
+              {isRecording && recordingType === 'video' && (
+                <div className="mb-4">
+                  <video
+                    ref={videoPreviewRef}
+                    autoPlay
+                    muted
+                    className="w-full h-64 bg-black rounded-lg"
+                  />
+                </div>
+              )}
+
+              {/* Media Preview */}
+              {mediaFiles.length > 0 && (
+                <div>
+                  <h3 className="text-white font-semibold mb-3">Selected Media ({mediaFiles.length})</h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    {mediaFiles.map((file, index) => (
+                      <div key={index} className="relative group">
+                        {getMediaPreview(file)}
+                        <p className="text-gray-400 text-xs mt-1 truncate">{file.name}</p>
+                        <button
+                          type="button"
+                          onClick={() => removeMediaFile(index)}
+                          className="absolute top-1 right-1 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <button
                 type="submit"
-                className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all font-semibold"
+                disabled={uploadingMedia}
+                className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Create Entry
+                {uploadingMedia ? 'Uploading Media...' : 'Create Entry'}
               </button>
             </form>
           </div>

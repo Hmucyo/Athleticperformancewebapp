@@ -30,54 +30,89 @@ export function AthleteManagement({ user }: AthleteManagementProps) {
     }
   }, [searchQuery, athletes]);
 
-  const fetchAthletes = async (isRefresh = false) => {
+  const fetchAthletes = async () => {
     try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+      setLoading(true);
       setError('');
       
-      const accessToken = localStorage.getItem('accessToken');
+      const accessToken = localStorage.getItem('accessToken') || 
+                   JSON.parse(localStorage.getItem('sb-kelawywzkwtpiqpdgzmh-auth-token') || '{}')?.access_token;
+      const adminUser = localStorage.getItem('adminUser');
       
-      console.log('Fetching athletes with admin access...');
-      console.log('Admin user:', user);
-      console.log('Access token exists:', !!accessToken);
+      console.log('=== ATHLETE FETCH DEBUG ===');
+      console.log('1. Access Token exists:', !!accessToken);
+      console.log('2. Access Token length:', accessToken?.length || 0);
+      console.log('3. Access Token preview:', accessToken?.substring(0, 30) + '...');
+      console.log('4. Admin User:', adminUser ? JSON.parse(adminUser) : null);
+      console.log('5. Project ID:', projectId);
+      console.log('6. Fetch URL:', `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/admin/athletes`);
       
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/admin/athletes`,
-        {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`
-          }
-        }
-      );
+      if (!accessToken) {
+        setError('No access token found. Please log in again.');
+        setLoading(false);
+        return;
+      }
 
-      console.log('Response status:', response.status);
+      const url = `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/admin/athletes`;
+      console.log('7. Making request to:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('8. Response status:', response.status);
+      console.log('9. Response ok:', response.ok);
+      console.log('10. Response headers:', Object.fromEntries(response.headers.entries()));
+
+      const data = await response.json();
+      console.log('11. Response data:', data);
 
       if (response.ok) {
-        const data = await response.json();
-        console.log('Athletes fetched:', data.athletes?.length || 0);
-        console.log('Athletes data:', data.athletes);
         setAthletes(data.athletes || []);
-        setFilteredAthletes(data.athletes || []);
+        console.log('12. Athletes loaded:', data.athletes?.length || 0);
       } else {
-        const errorData = await response.json();
-        console.error('Failed to fetch athletes:', errorData);
-        setError(errorData.error || 'Failed to load athletes. Please check console for details.');
+        console.error('13. Error response:', data);
+        
+        // Provide specific error messages based on status code
+        if (response.status === 401) {
+          setError(`Authentication failed: ${data.error || 'Invalid or expired session'}. Please log out and log back in.`);
+        } else if (response.status === 403) {
+          setError(`Access denied: ${data.error || 'Admin privileges required'}. Your account may not have admin role.`);
+        } else if (response.status === 404) {
+          setError('Server endpoint not found. The Edge Function may not be deployed.');
+        } else {
+          setError(data.error || `Failed to load athletes (Status: ${response.status})`);
+        }
       }
+      
+      console.log('=== END ATHLETE FETCH DEBUG ===');
     } catch (error) {
-      console.error('Failed to fetch athletes:', error);
-      setError('Cannot connect to server. Please ensure the edge function is deployed.');
+      console.error('14. Fetch exception:', error);
+      console.error('15. Error type:', error instanceof TypeError ? 'Network/CORS' : 'Other');
+      console.error('16. Error message:', (error as Error).message);
+      
+      if (error instanceof TypeError) {
+        setError(
+          'Cannot connect to server. Possible causes:\n' +
+          '1. Edge Function not deployed\n' +
+          '2. Network connectivity issue\n' +
+          '3. CORS configuration problem\n' +
+          'Check browser console for details.'
+        );
+      } else {
+        setError(`Failed to load athletes: ${(error as Error).message}`);
+      }
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
   const handleRefresh = () => {
-    fetchAthletes(true);
+    fetchAthletes();
   };
 
   return (

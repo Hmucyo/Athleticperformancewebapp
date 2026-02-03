@@ -14,6 +14,8 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
     email: "",
     password: "",
     fullName: "",
+    username: "",
+    phoneNumber: "",
     confirmPassword: ""
   });
   const [error, setError] = useState("");
@@ -48,6 +50,8 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
               email: formData.email,
               password: formData.password,
               fullName: formData.fullName,
+              username: formData.username,
+              phoneNumber: formData.phoneNumber,
               role: 'athlete'
             })
           }
@@ -196,6 +200,42 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
                 required={isSignUp}
                 className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
                 placeholder="Enter your full name"
+              />
+            </div>
+          )}
+
+          {isSignUp && (
+            <div>
+              <label htmlFor="username" className="block text-gray-300 mb-2">
+                Username
+              </label>
+              <input
+                type="text"
+                id="username"
+                name="username"
+                value={formData.username}
+                onChange={handleChange}
+                required={isSignUp}
+                className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+                placeholder="Enter your username"
+              />
+            </div>
+          )}
+
+          {isSignUp && (
+            <div>
+              <label htmlFor="phoneNumber" className="block text-gray-300 mb-2">
+                Phone Number
+              </label>
+              <input
+                type="text"
+                id="phoneNumber"
+                name="phoneNumber"
+                value={formData.phoneNumber}
+                onChange={handleChange}
+                required={isSignUp}
+                className="w-full bg-black/50 border border-white/10 rounded px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+                placeholder="Enter your phone number"
               />
             </div>
           )}

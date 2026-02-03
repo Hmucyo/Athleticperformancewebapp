@@ -1,16 +1,49 @@
 import { Menu, X } from "lucide-react";
-import { useState } from "react";
-import logo from "figma:asset/77156f911092fcfd68f4fc3bdb99d1157f1b817d.png";
+import { useState, useEffect } from "react";
+import { projectId, publicAnonKey } from "../utils/supabase/info";
 
 export function Navigation({ onAuthClick }: { onAuthClick: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Fetch logo from backend
+    const fetchLogo = async () => {
+      try {
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/logo`,
+          {
+            headers: {
+              'Authorization': `Bearer ${publicAnonKey}`
+            }
+          }
+        );
+        const data = await response.json();
+        if (data.logoUrl) {
+          setLogoUrl(data.logoUrl);
+        }
+      } catch (error) {
+        console.error('Failed to fetch logo:', error);
+      }
+    };
+
+    fetchLogo();
+  }, []);
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-sm border-b border-white/10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center">
-            <img src={logo} alt="Authentikos Athletix Club" className="h-10" />
+            {logoUrl ? (
+              <img 
+                src={logoUrl} 
+                alt="Authentic Fitness & Sports Performance" 
+                className="h-16 object-contain" 
+              />
+            ) : (
+              <div className="text-xl font-bold text-white">AFSP</div>
+            )}
           </div>
           
           <div className="hidden md:block">

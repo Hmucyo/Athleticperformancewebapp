@@ -30,6 +30,7 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>('');
 
   // Create Exercise Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -43,6 +44,8 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadPreview, setUploadPreview] = useState<string>('');
   const [uploading, setUploading] = useState(false);
+  const [createError, setCreateError] = useState<string>('');
+  const [createSuccess, setCreateSuccess] = useState<string>('');
 
   // Assignment Modal State
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -57,6 +60,9 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
     assignedDate: new Date().toISOString().split('T')[0],
     notes: ''
   });
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState<string>('');
+  const [assignSuccess, setAssignSuccess] = useState<string>('');
 
   useEffect(() => {
     fetchCategories();
@@ -92,7 +98,12 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
   const fetchExercises = async () => {
     try {
       setLoading(true);
+      setError('');
       const accessToken = localStorage.getItem('accessToken');
+      
+      console.log('=== Fetching Exercises ===');
+      console.log('Access token exists:', !!accessToken);
+      
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/admin/exercises`,
         {
@@ -102,12 +113,21 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
         }
       );
 
+      console.log('Response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('Exercises retrieved:', data.exercises?.length || 0);
+        console.log('Exercise data:', data.exercises);
         setExercises(data.exercises || []);
+      } else {
+        const errorData = await response.json();
+        console.error('Failed to fetch exercises:', errorData);
+        setError(errorData.error || 'Failed to load exercises');
       }
     } catch (error) {
       console.error('Failed to fetch exercises:', error);
+      setError('Failed to load exercises');
     } finally {
       setLoading(false);
     }
@@ -232,18 +252,18 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
       );
 
       if (response.ok) {
-        alert('Exercise created successfully!');
+        setCreateSuccess('Exercise created successfully!');
         setShowCreateModal(false);
         resetCreateForm();
         fetchExercises();
         fetchCategories(); // Refresh categories in case new one was added
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to create exercise');
+        setCreateError(data.error || 'Failed to create exercise');
       }
     } catch (error) {
       console.error('Create exercise error:', error);
-      alert('Failed to create exercise');
+      setCreateError('Failed to create exercise');
     } finally {
       setUploading(false);
     }
@@ -259,6 +279,8 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
     });
     setUploadedFile(null);
     setUploadPreview('');
+    setCreateError('');
+    setCreateSuccess('');
   };
 
   const handleOpenAssignModal = (exercise: Exercise) => {
@@ -275,6 +297,7 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
     }
 
     try {
+      setAssigning(true);
       const accessToken = localStorage.getItem('accessToken');
 
       const response = await fetch(
@@ -297,16 +320,18 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
       );
 
       if (response.ok) {
-        alert(`Exercise assigned to ${selectedAthletes.length} athlete(s) successfully!`);
+        setAssignSuccess(`Exercise assigned to ${selectedAthletes.length} athlete(s) successfully!`);
         setShowAssignModal(false);
         resetAssignmentForm();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to assign exercise');
+        setAssignError(data.error || 'Failed to assign exercise');
       }
     } catch (error) {
       console.error('Assign exercise error:', error);
-      alert('Failed to assign exercise');
+      setAssignError('Failed to assign exercise');
+    } finally {
+      setAssigning(false);
     }
   };
 
@@ -321,6 +346,8 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
       assignedDate: new Date().toISOString().split('T')[0],
       notes: ''
     });
+    setAssignError('');
+    setAssignSuccess('');
   };
 
   const toggleAthleteSelection = (athleteId: string) => {
@@ -606,6 +633,9 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
               >
                 {uploading ? 'Creating...' : 'Create Exercise'}
               </button>
+
+              {createError && <p className="text-red-400 mt-2">{createError}</p>}
+              {createSuccess && <p className="text-green-400 mt-2">{createSuccess}</p>}
             </form>
           </div>
         </div>
@@ -787,6 +817,9 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
               >
                 Assign to {selectedAthletes.length} Athlete(s)
               </button>
+
+              {assignError && <p className="text-red-400 mt-2">{assignError}</p>}
+              {assignSuccess && <p className="text-green-400 mt-2">{assignSuccess}</p>}
             </form>
           </div>
         </div>

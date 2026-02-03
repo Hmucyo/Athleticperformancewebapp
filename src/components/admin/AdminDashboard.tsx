@@ -1,11 +1,29 @@
-import { Home, Users, Dumbbell, Calendar, LogOut, Menu, X, FileText } from "lucide-react";
-import { useState } from "react";
-import { AdminHome } from "./AdminHome";
-import { AthleteManagement } from "./AthleteManagement";
-import { ExerciseAssignment } from "./ExerciseAssignment";
-import { ContractManagement } from "./ContractManagement";
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import logo from "figma:asset/77156f911092fcfd68f4fc3bdb99d1157f1b817d.png";
+import { useState, useEffect } from 'react';
+import { 
+  Users, 
+  Dumbbell, 
+  FileText, 
+  MessageSquare, 
+  BarChart3, 
+  Settings,
+  LogOut,
+  Activity,
+  AlertCircle,
+  Home,
+  Menu,
+  X
+} from 'lucide-react';
+import { AdminHome } from './AdminHome';
+import { AthleteManagement } from './AthleteManagement';
+import { ExerciseAssignment } from './ExerciseAssignment';
+import { ContractManagement } from './ContractManagement';
+import { ProgramManagement } from './ProgramManagement';
+import { SystemDebug } from './SystemDebug';
+import { LogoUpload } from './LogoUpload';
+import { projectId } from '../../utils/supabase/info';
+import logo from 'figma:asset/71f63c1b15553f67f54d4e99c67f6bd91f21f8bf.png';
+
+type Tab = 'overview' | 'athletes' | 'programs' | 'exercises' | 'contracts' | 'messages' | 'analytics' | 'settings' | 'debug';
 
 interface AdminDashboardProps {
   user: any;
@@ -13,7 +31,7 @@ interface AdminDashboardProps {
 }
 
 export function AdminDashboard({ user, onSignOut }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleSignOut = async () => {
@@ -43,15 +61,19 @@ export function AdminDashboard({ user, onSignOut }: AdminDashboardProps) {
     }
   };
 
-  const tabs = [
-    { id: 'home', label: 'Dashboard', icon: Home },
+  const tabs: { id: Tab, label: string, icon: any }[] = [
+    { id: 'overview', label: 'Dashboard', icon: Home },
     { id: 'athletes', label: 'Athletes', icon: Users },
+    { id: 'programs', label: 'Programs', icon: Activity },
     { id: 'exercises', label: 'Exercises', icon: Dumbbell },
-    { id: 'calendar', label: 'Calendar', icon: Calendar },
     { id: 'contracts', label: 'Contracts', icon: FileText },
+    { id: 'messages', label: 'Messages', icon: MessageSquare },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'debug', label: 'Debug', icon: AlertCircle },
   ];
 
-  const handleTabChange = (tabId: string) => {
+  const handleTabChange = (tabId: Tab) => {
     setActiveTab(tabId);
     setMobileMenuOpen(false);
   };
@@ -121,19 +143,18 @@ export function AdminDashboard({ user, onSignOut }: AdminDashboardProps) {
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
-        {activeTab === 'home' && <AdminHome user={user} />}
+        {activeTab === 'overview' && <AdminHome user={user} />}
         {activeTab === 'athletes' && <AthleteManagement user={user} />}
+        {activeTab === 'programs' && <ProgramManagement user={user} />}
         {activeTab === 'exercises' && <ExerciseAssignment user={user} />}
-        {activeTab === 'calendar' && (
-          <div className="p-8">
-            <h1 className="text-white text-4xl font-bold mb-2">Calendar</h1>
-            <p className="text-gray-400 mb-8">Manage schedules and bookings</p>
-            <div className="bg-gray-900 border border-white/10 rounded-lg p-8 text-center">
-              <p className="text-gray-400">Calendar feature coming soon...</p>
-            </div>
+        {activeTab === 'contracts' && <ContractManagement user={user} />}
+        {activeTab === 'settings' && (
+          <div className="p-6 max-w-4xl mx-auto">
+            <h1 className="text-3xl font-bold text-white mb-8">Settings</h1>
+            <LogoUpload accessToken={localStorage.getItem('accessToken') || ''} />
           </div>
         )}
-        {activeTab === 'contracts' && <ContractManagement user={user} />}
+        {activeTab === 'debug' && <SystemDebug user={user} />}
       </main>
     </div>
   );
