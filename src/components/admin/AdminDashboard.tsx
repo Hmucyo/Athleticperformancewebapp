@@ -21,7 +21,7 @@ import { ProgramManagement } from './ProgramManagement';
 import { SystemDebug } from './SystemDebug';
 import { LogoUpload } from './LogoUpload';
 import { projectId } from '../../utils/supabase/info';
-import logo from 'figma:asset/71f63c1b15553f67f54d4e99c67f6bd91f21f8bf.png';
+import logo from 'figma:asset/77156f911092fcfd68f4fc3bdb99d1157f1b817d.png';
 
 type Tab = 'overview' | 'athletes' | 'programs' | 'exercises' | 'contracts' | 'messages' | 'analytics' | 'settings' | 'debug';
 
