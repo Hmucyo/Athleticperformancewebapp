@@ -7,6 +7,24 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
 );
 
+// Initialize Supabase client with anon key for user token validation
+const supabaseAnon = createClient(
+  Deno.env.get('SUPABASE_URL') ?? '',
+  Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+);
+
+// Helper function to check if user is admin
+async function isAdmin(user: any): Promise<boolean> {
+  // First check user_metadata.role (from Supabase Auth)
+  if (user?.user_metadata?.role === 'admin') {
+    return true;
+  }
+  
+  // Fall back to KV store
+  const profile = await kv.get(`user:${user.id}`);
+  return profile?.role === 'admin';
+}
+
 export function registerProgramRoutes(app: Hono) {
   // Admin: Get all coaches (for program assignment)
   app.get("/make-server-9340b842/admin/coaches", async (c) => {
@@ -17,15 +35,15 @@ export function registerProgramRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
 
-      const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+      const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
       if (authError || !user) {
         return c.json({ error: 'Invalid session' }, 401);
       }
 
-      const userProfile = await kv.get(`user:${user.id}`);
-      
-      if (userProfile?.role !== 'admin') {
+      // Check if user is admin using the helper function
+      const userIsAdmin = await isAdmin(user);
+      if (!userIsAdmin) {
         return c.json({ error: 'Admin access required' }, 403);
       }
 
@@ -49,15 +67,15 @@ export function registerProgramRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
 
-      const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+      const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
       if (authError || !user) {
         return c.json({ error: 'Invalid session' }, 401);
       }
 
-      const userProfile = await kv.get(`user:${user.id}`);
-      
-      if (userProfile?.role !== 'admin') {
+      // Check if user is admin using the helper function
+      const userIsAdmin = await isAdmin(user);
+      if (!userIsAdmin) {
         return c.json({ error: 'Admin access required' }, 403);
       }
 
@@ -115,15 +133,15 @@ export function registerProgramRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
 
-      const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+      const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
       if (authError || !user) {
         return c.json({ error: 'Invalid session' }, 401);
       }
 
-      const userProfile = await kv.get(`user:${user.id}`);
-      
-      if (userProfile?.role !== 'admin') {
+      // Check if user is admin using the helper function
+      const userIsAdmin = await isAdmin(user);
+      if (!userIsAdmin) {
         return c.json({ error: 'Admin access required' }, 403);
       }
 
@@ -164,15 +182,15 @@ export function registerProgramRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
 
-      const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+      const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
       if (authError || !user) {
         return c.json({ error: 'Invalid session' }, 401);
       }
 
-      const userProfile = await kv.get(`user:${user.id}`);
-      
-      if (userProfile?.role !== 'admin') {
+      // Check if user is admin using the helper function
+      const userIsAdmin = await isAdmin(user);
+      if (!userIsAdmin) {
         return c.json({ error: 'Admin access required' }, 403);
       }
 
@@ -209,15 +227,15 @@ export function registerProgramRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
 
-      const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+      const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
       if (authError || !user) {
         return c.json({ error: 'Invalid session' }, 401);
       }
 
-      const userProfile = await kv.get(`user:${user.id}`);
-      
-      if (userProfile?.role !== 'admin') {
+      // Check if user is admin using the helper function
+      const userIsAdmin = await isAdmin(user);
+      if (!userIsAdmin) {
         return c.json({ error: 'Admin access required' }, 403);
       }
 
@@ -246,7 +264,7 @@ export function registerProgramRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
 
-      const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+      const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
       if (authError || !user) {
         return c.json({ error: 'Invalid session' }, 401);
@@ -298,7 +316,7 @@ export function registerProgramRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
 
-      const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+      const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
       if (authError || !user) {
         return c.json({ error: 'Invalid session' }, 401);
@@ -332,7 +350,7 @@ export function registerProgramRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
 
-      const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+      const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
       if (authError || !user) {
         return c.json({ error: 'Invalid session' }, 401);
@@ -453,15 +471,15 @@ export function registerProgramRoutes(app: Hono) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
 
-      const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+      const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
 
       if (authError || !user) {
         return c.json({ error: 'Invalid session' }, 401);
       }
 
-      const userProfile = await kv.get(`user:${user.id}`);
-      
-      if (userProfile?.role !== 'admin') {
+      // Check if user is admin using the helper function
+      const userIsAdmin = await isAdmin(user);
+      if (!userIsAdmin) {
         return c.json({ error: 'Admin access required' }, 403);
       }
 
