@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Shield, Mail, Lock, AlertCircle } from "lucide-react";
+import { createClient } from "@supabase/supabase-js";
 
 interface AdminLoginProps {
   onLoginSuccess: (user: any, accessToken: string) => void;
@@ -26,35 +27,77 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
         return;
       }
 
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/auth/signin`;
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
-        body: JSON.stringify({ email, password })
+      // Use Supabase client directly to sign in - this creates a valid token
+      const supabase = createClient(
+        `https://${projectId}.supabase.co`,
+        publicAnonKey
+      );
+
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
 
-      const data = await response.json();
+      if (authError) {
+        setError(authError.message || 'Invalid admin credentials');
+        return;
+      }
 
-      if (response.ok && data.accessToken) {
-        // Verify user is admin
-        if (data.user.role !== 'admin') {
+      if (!authData.session || !authData.user) {
+        setError('No session created');
+        return;
+      }
+
+      // Get user role from metadata
+      let userRole = authData.user.user_metadata?.role || 'athlete';
+      const userName = authData.user.user_metadata?.name || authData.user.email;
+
+      // If role is not set, update user metadata to set it as admin
+      if (userRole !== 'admin') {
+        // Check if this is the admin email
+        if (authData.user.email === 'admin@afsp.com') {
+          // Update user metadata to set role as admin
+          const { error: updateError } = await supabase.auth.updateUser({
+            data: { 
+              role: 'admin',
+              name: userName || 'Admin'
+            }
+          });
+          
+          if (updateError) {
+            console.error('Failed to update user metadata:', updateError);
+            setError('Failed to set admin role. Please contact support.');
+            return;
+          }
+          
+          userRole = 'admin';
+        } else {
           setError('Access denied. Admin credentials required.');
           return;
         }
-
-        // Store credentials
-        localStorage.setItem('accessToken', data.accessToken);
-        localStorage.setItem('userId', data.user.id);
-        localStorage.setItem('userRole', data.user.role);
-
-        onLoginSuccess(data.user, data.accessToken);
-      } else {
-        setError(data.error || 'Invalid admin credentials');
       }
+
+      // Verify user is admin
+      if (userRole !== 'admin') {
+        setError('Access denied. Admin credentials required.');
+        return;
+      }
+
+      // Create user object for the app
+      const user = {
+        id: authData.user.id,
+        email: authData.user.email,
+        role: userRole,
+        fullName: userName
+      };
+
+      // Store credentials
+      localStorage.setItem('accessToken', authData.session.access_token);
+      localStorage.setItem('userId', user.id);
+      localStorage.setItem('userRole', user.role);
+      localStorage.setItem('user', JSON.stringify(user));
+
+      onLoginSuccess(user, authData.session.access_token);
     } catch (err) {
       console.error('Admin login error:', err);
       

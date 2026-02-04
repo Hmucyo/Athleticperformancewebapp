@@ -48,6 +48,18 @@ const initStorage = async () => {
 
 initStorage();
 
+// Helper function to check if user is admin
+async function isAdmin(user: any): Promise<boolean> {
+  // First check user_metadata.role (from Supabase Auth)
+  if (user.user_metadata?.role === 'admin') {
+    return true;
+  }
+  
+  // Fall back to KV store
+  const profile = await kv.get(`user:${user.id}`);
+  return profile?.role === 'admin';
+}
+
 // Enable logger
 app.use('*', logger(console.log));
 
@@ -348,7 +360,8 @@ app.post("/make-server-9340b842/auth/signin", async (c) => {
       return c.json({ error: "Missing email or password" }, 400);
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    // Use anon client for signin to get a token valid for Edge Functions
+    const { data, error } = await supabaseAnon.auth.signInWithPassword({
       email,
       password,
     });
@@ -357,6 +370,17 @@ app.post("/make-server-9340b842/auth/signin", async (c) => {
       console.error('Sign in error:', error);
       return c.json({ error: error.message }, 401);
     }
+
+    if (!data.session) {
+      console.error('No session created during signin');
+      return c.json({ error: 'No session created' }, 401);
+    }
+
+    console.log('=== Signin Success ===');
+    console.log('User ID:', data.user.id);
+    console.log('Token exists:', !!data.session.access_token);
+    console.log('Token length:', data.session.access_token?.length || 0);
+    console.log('Token first 50 chars:', data.session.access_token?.substring(0, 50) || 'N/A');
 
     // Get user profile from KV store
     const userProfile = await kv.get(`user:${data.user.id}`);
@@ -647,8 +671,8 @@ app.post("/make-server-9340b842/admin/exercises/assign", async (c) => {
     }
 
     // Check if user is admin
-    const adminProfile = await kv.get(`user:${user.id}`);
-    if (adminProfile?.role !== 'admin') {
+    const userIsAdmin = await isAdmin(user);
+    if (!userIsAdmin) {
       return c.json({ error: 'Admin access required' }, 403);
     }
 
@@ -705,10 +729,8 @@ app.get("/make-server-9340b842/admin/athletes", async (c) => {
     }
 
     // Check if user is admin
-    const adminProfile = await kv.get(`user:${user.id}`);
-    console.log('Admin profile:', adminProfile);
-    
-    if (adminProfile?.role !== 'admin') {
+    const userIsAdmin = await isAdmin(user);
+    if (!userIsAdmin) {
       return c.json({ error: 'Admin access required' }, 403);
     }
 
@@ -1355,9 +1377,8 @@ app.get("/make-server-9340b842/admin/contracts", async (c) => {
     }
 
     // Check if user is admin
-    const userProfile = await kv.get(`user:${user.id}`);
-    
-    if (userProfile?.role !== 'admin') {
+    const userIsAdmin = await isAdmin(user);
+    if (!userIsAdmin) {
       return c.json({ error: 'Admin access required' }, 403);
     }
 
@@ -1414,8 +1435,8 @@ app.get("/make-server-9340b842/admin/exercises/categories", async (c) => {
     }
 
     // Check if user is admin
-    const adminProfile = await kv.get(`user:${user.id}`);
-    if (adminProfile?.role !== 'admin') {
+    const userIsAdmin = await isAdmin(user);
+    if (!userIsAdmin) {
       return c.json({ error: 'Admin access required' }, 403);
     }
 
@@ -1470,10 +1491,8 @@ app.get("/make-server-9340b842/admin/exercises", async (c) => {
     }
 
     // Check if user is admin
-    const adminProfile = await kv.get(`user:${user.id}`);
-    console.log('User profile:', adminProfile);
-    
-    if (adminProfile?.role !== 'admin') {
+    const userIsAdmin = await isAdmin(user);
+    if (!userIsAdmin) {
       return c.json({ error: 'Admin access required' }, 403);
     }
 
@@ -1514,8 +1533,8 @@ app.post("/make-server-9340b842/admin/exercises", async (c) => {
     }
 
     // Check if user is admin
-    const adminProfile = await kv.get(`user:${user.id}`);
-    if (adminProfile?.role !== 'admin') {
+    const userIsAdmin = await isAdmin(user);
+    if (!userIsAdmin) {
       return c.json({ error: 'Admin access required' }, 403);
     }
 
@@ -1566,22 +1585,41 @@ app.post("/make-server-9340b842/admin/exercises", async (c) => {
 // Upload media for exercise (admin only)
 app.post("/make-server-9340b842/admin/exercises/upload", async (c) => {
   try {
+    // Debug logging for Authorization header
+    const authHeader = c.req.header('Authorization');
+    console.log('=== Upload Request Debug ===');
+    console.log('Authorization header received:', authHeader ? 'YES' : 'NO');
+    console.log('Full header value:', authHeader);
+    
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    console.log('Extracted token exists:', !!accessToken);
+    console.log('Token length:', accessToken?.length || 0);
+    console.log('Token first 20 chars:', accessToken?.substring(0, 20) || 'N/A');
     
     if (!accessToken) {
+      console.log('ERROR: No access token found in request');
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
     // Use anon client to validate user token
+    console.log('Validating token with Supabase...');
     const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
+    
+    console.log('Token validation result:');
+    console.log('- User ID:', user?.id || 'NONE');
+    console.log('- Auth error:', authError?.message || 'NONE');
+    console.log('- Auth error code:', authError?.status || 'NONE');
 
     if (authError || !user) {
+      console.log('ERROR: Token validation failed');
       return c.json({ error: 'Invalid session' }, 401);
     }
+    
+    console.log('Token validated successfully for user:', user.id);
 
     // Check if user is admin
-    const adminProfile = await kv.get(`user:${user.id}`);
-    if (adminProfile?.role !== 'admin') {
+    const userIsAdmin = await isAdmin(user);
+    if (!userIsAdmin) {
       return c.json({ error: 'Admin access required' }, 403);
     }
 
@@ -1636,8 +1674,8 @@ app.post("/make-server-9340b842/admin/exercises/:exerciseId/assign", async (c) =
     }
 
     // Check if user is admin
-    const adminProfile = await kv.get(`user:${user.id}`);
-    if (adminProfile?.role !== 'admin') {
+    const userIsAdmin = await isAdmin(user);
+    if (!userIsAdmin) {
       return c.json({ error: 'Admin access required' }, 403);
     }
 

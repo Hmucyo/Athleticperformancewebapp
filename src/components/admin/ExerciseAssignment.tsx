@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Plus, X, Search, Filter, Upload, Link as LinkIcon, Video, Image as ImageIcon, Users, User, Tag } from "lucide-react";
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { createClient } from "@supabase/supabase-js";
 
 interface ExerciseAssignmentProps {
   user: any;
@@ -207,31 +208,81 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
       let mediaType: 'image' | 'video' | undefined;
 
       if (uploadedFile) {
-        const formData = new FormData();
-        formData.append('file', uploadedFile);
+        // Use Supabase Storage directly to bypass Edge Function JWT validation
+        console.log('=== Starting Upload ===');
+        console.log('Access token exists:', !!accessToken);
+        console.log('User ID:', user?.id || localStorage.getItem('userId'));
+        console.log('File name:', uploadedFile.name);
+        console.log('File size:', uploadedFile.size);
+        console.log('File type:', uploadedFile.type);
 
-        const uploadResponse = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/admin/exercises/upload`,
+        const supabase = createClient(
+          `https://${projectId}.supabase.co`,
+          publicAnonKey,
           {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${accessToken}`
-            },
-            body: formData
+            global: {
+              headers: {
+                Authorization: `Bearer ${accessToken}`
+              }
+            }
           }
         );
 
-        if (uploadResponse.ok) {
-          const uploadData = await uploadResponse.json();
-          mediaUrl = uploadData.url;
-          mediaType = uploadedFile.type.startsWith('image/') ? 'image' : 'video';
-        } else {
-          alert('Failed to upload media');
+        const userId = user?.id || localStorage.getItem('userId') || 'unknown';
+        const fileName = `${userId}/${Date.now()}-${uploadedFile.name}`;
+        
+        console.log('Uploading to bucket: make-9340b842-exercise-media');
+        console.log('File path:', fileName);
+        
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('make-9340b842-exercise-media')
+          .upload(fileName, uploadedFile, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) {
+          console.error('=== Upload Error ===');
+          console.error('Error message:', uploadError.message);
+          console.error('Error status:', uploadError.statusCode);
+          console.error('Full error:', uploadError);
+          alert(`Failed to upload media: ${uploadError.message}`);
           return;
         }
+
+        console.log('Upload successful:', uploadData);
+
+        // Get public URL (bucket is public, so we can use public URLs)
+        const { data: urlData } = supabase.storage
+          .from('make-9340b842-exercise-media')
+          .getPublicUrl(fileName);
+
+        console.log('Public URL:', urlData.publicUrl);
+        mediaUrl = urlData.publicUrl;
+        mediaType = uploadedFile.type.startsWith('image/') ? 'image' : 'video';
       }
 
       // Create exercise
+      console.log('=== Creating Exercise ===');
+      console.log('Access token exists:', !!accessToken);
+      if (accessToken) {
+        console.log('Token length:', accessToken.length);
+        console.log('Token first 50 chars:', accessToken.substring(0, 50));
+        // Decode JWT to see its structure (just the header and payload, not signature)
+        try {
+          const parts = accessToken.split('.');
+          if (parts.length === 3) {
+            const header = JSON.parse(atob(parts[0]));
+            const payload = JSON.parse(atob(parts[1]));
+            console.log('JWT Header:', header);
+            console.log('JWT Payload (first 200 chars):', JSON.stringify(payload).substring(0, 200));
+          }
+        } catch (e) {
+          console.log('Could not decode token:', e);
+        }
+      }
+      console.log('Exercise data:', { name: createFormData.name, category, mediaUrl });
+      
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/admin/exercises`,
         {
@@ -251,7 +302,11 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
         }
       );
 
+      console.log('Exercise creation response status:', response.status);
+      
       if (response.ok) {
+        const data = await response.json();
+        console.log('Exercise created successfully:', data);
         setCreateSuccess('Exercise created successfully!');
         setShowCreateModal(false);
         resetCreateForm();
@@ -259,7 +314,10 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
         fetchCategories(); // Refresh categories in case new one was added
       } else {
         const data = await response.json();
-        setCreateError(data.error || 'Failed to create exercise');
+        console.error('=== Exercise Creation Error ===');
+        console.error('Status:', response.status);
+        console.error('Response:', data);
+        setCreateError(data.error || data.message || 'Failed to create exercise');
       }
     } catch (error) {
       console.error('Create exercise error:', error);
