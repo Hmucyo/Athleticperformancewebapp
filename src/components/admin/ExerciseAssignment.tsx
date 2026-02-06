@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Plus, X, Search, Filter, Upload, Link as LinkIcon, Video, Image as ImageIcon, Users, User, Tag } from "lucide-react";
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { createClient } from "@supabase/supabase-js";
+import { toast } from "sonner";
 
 interface ExerciseAssignmentProps {
   user: any;
@@ -195,7 +196,7 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
       : createFormData.category;
 
     if (!createFormData.name || !category) {
-      alert('Please provide exercise name and category');
+      toast.error('Please provide exercise name and category');
       return;
     }
 
@@ -246,7 +247,7 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
           console.error('Error message:', uploadError.message);
           console.error('Error status:', uploadError.statusCode);
           console.error('Full error:', uploadError);
-          alert(`Failed to upload media: ${uploadError.message}`);
+          toast.error('Failed to upload media', { description: uploadError.message });
           return;
         }
 
@@ -350,7 +351,7 @@ export function ExerciseAssignment({ user }: ExerciseAssignmentProps) {
     e.preventDefault();
 
     if (selectedAthletes.length === 0) {
-      alert('Please select at least one athlete');
+      toast.error('Please select at least one athlete');
       return;
     }
 

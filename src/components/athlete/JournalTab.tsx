@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { Plus, Edit2, Trash2, Image, Video, FileText, X, Smile, Meh, Frown, Camera, Mic, VideoIcon, Upload, Trash } from "lucide-react";
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { toast } from 'sonner';
+import { sanitizeText } from '../../utils/sanitize';
+import { sanitizeString } from '../../utils/validation';
 
 interface JournalTabProps {
   user: any;
@@ -58,13 +61,21 @@ export function JournalTab({ user }: JournalTabProps) {
     e.preventDefault();
 
     if (!formData.title || !formData.content) {
-      alert('Title and content are required');
+      toast.error('Title and content are required');
       return;
     }
 
     try {
       const accessToken = localStorage.getItem('accessToken');
       
+      // Sanitize inputs
+      const sanitizedData = {
+        title: sanitizeString(formData.title),
+        content: sanitizeText(formData.content),
+        mood: formData.mood,
+        tags: formData.tags.map(tag => sanitizeString(tag))
+      };
+
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/journal/entries`,
         {
@@ -73,7 +84,7 @@ export function JournalTab({ user }: JournalTabProps) {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${accessToken}`
           },
-          body: JSON.stringify(formData)
+          body: JSON.stringify(sanitizedData)
         }
       );
 
@@ -90,22 +101,25 @@ export function JournalTab({ user }: JournalTabProps) {
           setUploadingMedia(false);
         }
 
+        toast.success('Journal entry created successfully!');
         setShowCreateModal(false);
         setFormData({ title: '', content: '', mood: '', tags: [] });
         setMediaFiles([]);
         fetchEntries();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to create entry');
+        toast.error(data.error || 'Failed to create entry');
       }
     } catch (error) {
       console.error('Create entry error:', error);
-      alert('Failed to create entry');
+      toast.error('Failed to create entry');
     }
   };
 
   const handleDeleteEntry = async (entryId: string) => {
-    if (!confirm('Are you sure you want to delete this entry?')) {
+    // Use a more user-friendly confirmation
+    const confirmed = window.confirm('Are you sure you want to delete this entry? This action cannot be undone.');
+    if (!confirmed) {
       return;
     }
 
@@ -123,14 +137,15 @@ export function JournalTab({ user }: JournalTabProps) {
       );
 
       if (response.ok) {
+        toast.success('Entry deleted successfully');
         fetchEntries();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to delete entry');
+        toast.error(data.error || 'Failed to delete entry');
       }
     } catch (error) {
       console.error('Delete entry error:', error);
-      alert('Failed to delete entry');
+      toast.error('Failed to delete entry');
     }
   };
 
@@ -164,11 +179,11 @@ export function JournalTab({ user }: JournalTabProps) {
         }
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to upload media');
+        toast.error(data.error || 'Failed to upload media');
       }
     } catch (error) {
       console.error('Upload media error:', error);
-      alert('Failed to upload media');
+      toast.error('Failed to upload media');
     } finally {
       setUploadingMedia(false);
     }
@@ -236,7 +251,9 @@ export function JournalTab({ user }: JournalTabProps) {
       setRecordingType(type);
     } catch (error) {
       console.error('Error starting recording:', error);
-      alert('Failed to access camera/microphone. Please grant permissions.');
+      toast.error('Failed to access camera/microphone', {
+        description: 'Please grant permissions to use your camera or microphone.'
+      });
     }
   };
 
@@ -271,7 +288,9 @@ export function JournalTab({ user }: JournalTabProps) {
       }, 'image/jpeg');
     } catch (error) {
       console.error('Error capturing photo:', error);
-      alert('Failed to access camera. Please grant permissions.');
+      toast.error('Failed to access camera', {
+        description: 'Please grant camera permissions to take photos.'
+      });
     }
   };
 

@@ -20,6 +20,7 @@ import { ContractManagement } from './ContractManagement';
 import { ProgramManagement } from './ProgramManagement';
 import { SystemDebug } from './SystemDebug';
 import { LogoUpload } from './LogoUpload';
+import { AdminChatTab } from './AdminChatTab';
 import { projectId } from '../../utils/supabase/info';
 import logo from 'figma:asset/77156f911092fcfd68f4fc3bdb99d1157f1b817d.png';
 
@@ -181,6 +182,7 @@ export function AdminDashboard({ user, onSignOut }: AdminDashboardProps) {
         {activeTab === 'programs' && <ProgramManagement user={user} />}
         {activeTab === 'exercises' && <ExerciseAssignment user={user} />}
         {activeTab === 'contracts' && <ContractManagement user={user} />}
+        {activeTab === 'messages' && <AdminChatTab user={user} />}
         {activeTab === 'settings' && (
           <div className="p-6 max-w-4xl mx-auto">
             <h1 className="text-3xl font-bold text-white mb-8">Settings</h1>
