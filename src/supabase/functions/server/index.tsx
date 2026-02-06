@@ -1006,12 +1006,31 @@ app.post("/make-server-9340b842/chat/messages", async (c) => {
       return c.json({ error: 'Message content required' }, 400);
     }
 
-    const messageId = `message:${channelId || 'general'}:${Date.now()}`;
+    // Determine the correct channelId
+    let finalChannelId = channelId || 'general';
+    
+    // If recipientId is provided but channelId doesn't start with 'dm:', create DM channel ID
+    if (recipientId && !finalChannelId.startsWith('dm:')) {
+      finalChannelId = `dm:${recipientId}`;
+    }
+
+    // Check if General channel is locked (only for General channel)
+    if (finalChannelId === 'general') {
+      const isLocked = await kv.get('channel:general:locked');
+      const userProfile = await kv.get(`user:${user.id}`);
+      const isAdmin = userProfile?.role === 'admin' || user?.user_metadata?.role === 'admin';
+      
+      if (isLocked && !isAdmin) {
+        return c.json({ error: 'General channel is locked. Only admins can send messages.' }, 403);
+      }
+    }
+
+    const messageId = `message:${finalChannelId}:${Date.now()}`;
     const message = {
       id: messageId,
       senderId: user.id,
-      recipientId,
-      channelId: channelId || 'general',
+      recipientId: recipientId || null,
+      channelId: finalChannelId,
       content,
       createdAt: new Date().toISOString(),
       read: false
@@ -1093,13 +1112,19 @@ app.get("/make-server-9340b842/chat/channels", async (c) => {
 
     const userProfile = await kv.get(`user:${user.id}`);
     
-    // Default channels
+    // Get General channel lock status
+    const generalLockStatus = await kv.get('channel:general:locked');
+    const isLocked = generalLockStatus === true;
+    
+    // Default channels - General is always first
     const channels = [
       {
         id: 'general',
         name: 'General',
         description: 'General discussion for all athletes',
-        type: 'group'
+        type: 'group',
+        locked: isLocked,
+        lastMessageAt: null
       }
     ];
 
@@ -1109,7 +1134,9 @@ app.get("/make-server-9340b842/chat/channels", async (c) => {
         id: `coach:${userProfile.assignedCoach.id}`,
         name: `Coach: ${userProfile.assignedCoach.name}`,
         description: 'Direct messages with your coach',
-        type: 'direct'
+        type: 'direct',
+        locked: false,
+        lastMessageAt: null
       });
     }
 
@@ -1123,12 +1150,133 @@ app.get("/make-server-9340b842/chat/channels", async (c) => {
           id: `athlete:${athlete.id}`,
           name: athlete.fullName,
           description: `Direct messages with ${athlete.fullName}`,
-          type: 'direct'
+          type: 'direct',
+          locked: false,
+          lastMessageAt: null
         });
       });
     }
 
-    return c.json({ channels });
+    // Find all direct message conversations by checking messages
+    // Get all messages where user is sender or recipient
+    const allMessages = await kv.getByPrefix('message:');
+    const dmChannelsMap = new Map();
+    const channelLastMessages = new Map(); // Track last message time for each channel
+    
+    for (const message of allMessages) {
+      const messageTime = new Date(message.createdAt).getTime();
+      
+      // Check if this is a DM channel (starts with dm:)
+      if (message.channelId && message.channelId.startsWith('dm:')) {
+        const recipientId = message.channelId.replace('dm:', '');
+        
+        // If user is sender or recipient, add this conversation
+        if (message.senderId === user.id || message.recipientId === user.id || recipientId === user.id) {
+          if (!dmChannelsMap.has(message.channelId)) {
+            // Determine the other user in the conversation
+            let otherUserId = message.senderId === user.id ? message.recipientId : message.senderId;
+            
+            // If channelId format is dm:userId, use that
+            if (recipientId && recipientId !== user.id) {
+              otherUserId = recipientId;
+            }
+            
+            if (otherUserId && otherUserId !== user.id) {
+              const otherUser = await kv.get(`user:${otherUserId}`);
+              if (otherUser) {
+                dmChannelsMap.set(message.channelId, {
+                  id: message.channelId,
+                  name: otherUser.fullName || 'Unknown User',
+                  description: `Direct messages with ${otherUser.fullName || 'Unknown User'}`,
+                  type: 'direct',
+                  recipientId: otherUserId,
+                  locked: false,
+                  lastMessageAt: message.createdAt
+                });
+              }
+            }
+          }
+          
+          // Update last message time
+          const currentLast = channelLastMessages.get(message.channelId);
+          if (!currentLast || messageTime > currentLast) {
+            channelLastMessages.set(message.channelId, messageTime);
+          }
+        }
+      } else if (message.recipientId) {
+        // Handle messages with recipientId (direct messages)
+        // Create a channel ID based on the participants
+        const otherUserId = message.senderId === user.id ? message.recipientId : message.senderId;
+        
+        if (otherUserId && otherUserId !== user.id) {
+          const channelId = `dm:${otherUserId}`;
+          
+          if (!dmChannelsMap.has(channelId)) {
+            const otherUser = await kv.get(`user:${otherUserId}`);
+            if (otherUser) {
+              dmChannelsMap.set(channelId, {
+                id: channelId,
+                name: otherUser.fullName || 'Unknown User',
+                description: `Direct messages with ${otherUser.fullName || 'Unknown User'}`,
+                type: 'direct',
+                recipientId: otherUserId,
+                locked: false,
+                lastMessageAt: message.createdAt
+              });
+            }
+          }
+          
+          // Update last message time
+          const currentLast = channelLastMessages.get(channelId);
+          if (!currentLast || messageTime > currentLast) {
+            channelLastMessages.set(channelId, messageTime);
+          }
+        }
+      } else if (message.channelId === 'general') {
+        // Track last message time for General channel
+        const currentLast = channelLastMessages.get('general');
+        if (!currentLast || messageTime > currentLast) {
+          channelLastMessages.set('general', messageTime);
+        }
+      }
+    }
+    
+    // Add all DM channels to the channels list
+    dmChannelsMap.forEach((channel) => {
+      // Only add if not already in channels (avoid duplicates)
+      if (!channels.find(c => c.id === channel.id)) {
+        // Update last message time if we have it
+        const lastMsgTime = channelLastMessages.get(channel.id);
+        if (lastMsgTime) {
+          channel.lastMessageAt = new Date(lastMsgTime).toISOString();
+        }
+        channels.push(channel);
+      }
+    });
+    
+    // Update General channel last message time
+    const generalLastMsg = channelLastMessages.get('general');
+    if (generalLastMsg) {
+      const generalChannel = channels.find(c => c.id === 'general');
+      if (generalChannel) {
+        generalChannel.lastMessageAt = new Date(generalLastMsg).toISOString();
+      }
+    }
+
+    // Sort channels by last message time (most recent first)
+    // General channel always stays first, then sort the rest
+    const generalChannel = channels.find(c => c.id === 'general');
+    const otherChannels = channels.filter(c => c.id !== 'general');
+    
+    otherChannels.sort((a, b) => {
+      const timeA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+      const timeB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+      return timeB - timeA; // Most recent first
+    });
+    
+    const sortedChannels = generalChannel ? [generalChannel, ...otherChannels] : otherChannels;
+
+    return c.json({ channels: sortedChannels });
   } catch (error) {
     console.error('Get channels error:', error);
     return c.json({ error: 'Failed to get channels' }, 500);
@@ -1223,6 +1371,96 @@ app.post("/make-server-9340b842/chat/dm-channel", async (c) => {
   } catch (error) {
     console.error('Create DM channel error:', error);
     return c.json({ error: 'Failed to create DM channel' }, 500);
+  }
+});
+
+// Admin: Lock General channel
+app.post("/make-server-9340b842/chat/general/lock", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
+
+    if (authError || !user) {
+      return c.json({ error: 'Invalid session' }, 401);
+    }
+
+    // Check if user is admin
+    const userProfile = await kv.get(`user:${user.id}`);
+    const isAdmin = userProfile?.role === 'admin' || user?.user_metadata?.role === 'admin';
+    
+    if (!isAdmin) {
+      return c.json({ error: 'Admin access required' }, 403);
+    }
+
+    // Lock the General channel
+    await kv.set('channel:general:locked', true);
+
+    return c.json({ success: true, locked: true });
+  } catch (error) {
+    console.error('Lock channel error:', error);
+    return c.json({ error: 'Failed to lock channel' }, 500);
+  }
+});
+
+// Admin: Unlock General channel
+app.post("/make-server-9340b842/chat/general/unlock", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
+
+    if (authError || !user) {
+      return c.json({ error: 'Invalid session' }, 401);
+    }
+
+    // Check if user is admin
+    const userProfile = await kv.get(`user:${user.id}`);
+    const isAdmin = userProfile?.role === 'admin' || user?.user_metadata?.role === 'admin';
+    
+    if (!isAdmin) {
+      return c.json({ error: 'Admin access required' }, 403);
+    }
+
+    // Unlock the General channel
+    await kv.set('channel:general:locked', false);
+
+    return c.json({ success: true, locked: false });
+  } catch (error) {
+    console.error('Unlock channel error:', error);
+    return c.json({ error: 'Failed to unlock channel' }, 500);
+  }
+});
+
+// Get General channel lock status
+app.get("/make-server-9340b842/chat/general/status", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
+
+    if (authError || !user) {
+      return c.json({ error: 'Invalid session' }, 401);
+    }
+
+    const isLocked = await kv.get('channel:general:locked');
+    
+    return c.json({ locked: isLocked === true });
+  } catch (error) {
+    console.error('Get channel status error:', error);
+    return c.json({ error: 'Failed to get channel status' }, 500);
   }
 });
 

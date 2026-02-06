@@ -14,8 +14,39 @@ interface AthleteDashboardProps {
 }
 
 export function AthleteDashboard({ user, onSignOut }: AthleteDashboardProps) {
-  const [activeTab, setActiveTab] = useState('home');
+  // Initialize activeTab from URL hash or default to 'home'
+  const getInitialTab = () => {
+    const hash = window.location.hash.replace('#', '');
+    const validTabs = ['home', 'chat', 'journal', 'programs', 'profile'];
+    return validTabs.includes(hash) ? hash : 'home';
+  };
+
+  const [activeTab, setActiveTab] = useState(getInitialTab);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Restore tab from URL hash on mount and listen for hash changes
+  useEffect(() => {
+    const updateTabFromHash = () => {
+      const hash = window.location.hash.replace('#', '');
+      const validTabs = ['home', 'chat', 'journal', 'programs', 'profile'];
+      if (validTabs.includes(hash)) {
+        setActiveTab(hash);
+      } else if (!hash) {
+        // If no hash, default to home but don't update URL
+        setActiveTab('home');
+      }
+    };
+
+    // Set initial tab from hash
+    updateTabFromHash();
+
+    // Listen for hash changes (browser back/forward buttons)
+    window.addEventListener('hashchange', updateTabFromHash);
+
+    return () => {
+      window.removeEventListener('hashchange', updateTabFromHash);
+    };
+  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -56,6 +87,8 @@ export function AthleteDashboard({ user, onSignOut }: AthleteDashboardProps) {
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId);
     setMobileMenuOpen(false);
+    // Update URL hash to persist tab on refresh
+    window.location.hash = tabId;
   };
 
   return (
