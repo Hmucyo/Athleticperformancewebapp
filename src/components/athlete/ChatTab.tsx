@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Send, Users, Hash, Search, X, Lock } from "lucide-react";
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import { toast } from 'sonner';
-import { sanitizeText } from '../../utils/sanitize';
 
 interface ChatTabProps {
   user: any;
@@ -138,19 +136,6 @@ export function ChatTab({ user }: ChatTabProps) {
       return;
     }
 
-    // Sanitize message content
-    const sanitizedContent = sanitizeText(messageContent.trim());
-    if (!sanitizedContent || sanitizedContent.length === 0) {
-      toast.error('Message cannot be empty');
-      return;
-    }
-
-    // Limit message length
-    if (sanitizedContent.length > 5000) {
-      toast.error('Message is too long (max 5000 characters)');
-      return;
-    }
-
     setSending(true);
 
     try {
@@ -175,7 +160,7 @@ export function ChatTab({ user }: ChatTabProps) {
           },
           body: JSON.stringify({
             channelId: selectedChannel.id,
-            content: sanitizedContent,
+            content: messageContent,
             recipientId: recipientId
           })
         }
@@ -188,11 +173,11 @@ export function ChatTab({ user }: ChatTabProps) {
         fetchChannels(true);
       } else {
         const data = await response.json();
-        toast.error(data.error || 'Failed to send message');
+        alert(data.error || 'Failed to send message');
       }
     } catch (error) {
       console.error('Send message error:', error);
-      toast.error('Failed to send message');
+      alert('Failed to send message');
     } finally {
       setSending(false);
     }
