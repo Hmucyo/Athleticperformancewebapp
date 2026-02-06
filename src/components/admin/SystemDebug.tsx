@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import { toast } from 'sonner';
 
 export function SystemDebug() {
   const [checking, setChecking] = useState(false);
@@ -227,7 +226,7 @@ export function SystemDebug() {
               <button
                 onClick={() => {
                   localStorage.clear();
-                  toast.success('localStorage cleared. Please log in again.');
+                  alert('localStorage cleared. Please log in again.');
                   window.location.href = '/admin';
                 }}
                 className="w-full py-2 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors"
@@ -238,7 +237,7 @@ export function SystemDebug() {
                 onClick={() => {
                   console.log('Access Token:', localStorage.getItem('accessToken'));
                   console.log('Admin User:', localStorage.getItem('adminUser'));
-                  toast.info('Check browser console for details');
+                  alert('Check browser console for details');
                 }}
                 className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
               >

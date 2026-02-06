@@ -14,13 +14,10 @@ import { projectId, publicAnonKey } from './utils/supabase/info';
 import { createClient } from "@supabase/supabase-js";
 
 export default function App() {
-  console.log("App component rendering...");
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
-  
-  console.log("App state:", { loading, user: !!user, currentPath });
 
   useEffect(() => {
     checkSession();
@@ -36,17 +33,10 @@ export default function App() {
 
   const checkSession = async () => {
     try {
-      // Add timeout to prevent infinite loading (reduced to 2 seconds)
-      const timeoutId = setTimeout(() => {
-        console.warn('Session check taking too long, setting loading to false');
-        setLoading(false);
-      }, 2000);
-
       const accessToken = localStorage.getItem('accessToken');
       const storedUser = localStorage.getItem('user');
 
       if (!accessToken || !storedUser) {
-        clearTimeout(timeoutId);
         setLoading(false);
         return;
       }
@@ -59,7 +49,6 @@ export default function App() {
         console.error('Failed to parse stored user:', e);
         localStorage.removeItem('accessToken');
         localStorage.removeItem('user');
-        clearTimeout(timeoutId);
         setLoading(false);
         return;
       }
@@ -81,7 +70,6 @@ export default function App() {
         localStorage.removeItem('user');
         localStorage.removeItem('userId');
         localStorage.removeItem('userRole');
-        clearTimeout(timeoutId);
         setLoading(false);
         return;
       }
@@ -112,8 +100,6 @@ export default function App() {
         console.warn('Network error during session check, using stored user:', networkError);
         setUser(parsedUser);
       }
-      
-      clearTimeout(timeoutId);
     } catch (error) {
       // Unexpected error - only clear if it's an auth-related error
       console.error('Session check error:', error);
@@ -170,11 +156,8 @@ export default function App() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center', color: '#fff' }}>
-          <div style={{ fontSize: '20px', marginBottom: '10px' }}>Loading...</div>
-          <div style={{ fontSize: '14px', color: '#888' }}>If this takes too long, check the browser console</div>
-        </div>
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-white text-xl">Loading...</div>
       </div>
     );
   }
