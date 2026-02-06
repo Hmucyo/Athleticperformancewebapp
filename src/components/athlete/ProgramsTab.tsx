@@ -4,6 +4,7 @@ import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { PaymentModal } from '../PaymentModal';
 import { ContractModal } from '../ContractModal';
 import { CustomProgramModal } from '../CustomProgramModal';
+import { toast } from 'sonner';
 
 interface ProgramsTabProps {
   user: any;
@@ -197,17 +198,17 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
       );
 
       if (response.ok) {
-        alert('Successfully enrolled in program!');
+        toast.success('Successfully enrolled in program!');
         setShowEnrollModal(false);
         setSelectedProgram(null);
         fetchEnrolledPrograms();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to enroll in program');
+        toast.error(data.error || 'Failed to enroll in program');
       }
     } catch (error) {
       console.error('Enrollment error:', error);
-      alert('Failed to enroll in program');
+      toast.error('Failed to enroll in program');
     } finally {
       setEnrolling(false);
     }
@@ -216,29 +217,29 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
   const handleEnrollCustom = async () => {
     // Validate required fields based on the selected path
     if (!customProgram.deliveryType || !customProgram.programCategory) {
-      alert('Please complete all customization steps');
+      toast.error('Please complete all customization steps');
       return;
     }
 
     if (!customProgram.age || !customProgram.height || !customProgram.weight) {
-      alert('Please provide your age, height, and weight');
+      toast.error('Please provide your age, height, and weight');
       return;
     }
 
     if (customProgram.programCategory === 'sport-performance') {
       if (!customProgram.sport || customProgram.performanceGoals.length === 0) {
-        alert('Please complete sport performance details');
+        toast.error('Please complete sport performance details');
         return;
       }
     } else {
       if (customProgram.fitnessGoals.length === 0) {
-        alert('Please select at least one fitness goal');
+        toast.error('Please select at least one fitness goal');
         return;
       }
     }
 
     if (customProgram.deliveryType === 'online' && !customProgram.equipmentAccess) {
-      alert('Please specify your equipment access');
+      toast.error('Please specify your equipment access');
       return;
     }
 
@@ -263,7 +264,7 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
       );
 
       if (response.ok) {
-        alert('Custom program created successfully!');
+        toast.success('Custom program created successfully!');
         setShowCustomModal(false);
         setCustomizationStep(1);
         setCustomProgram({
@@ -288,11 +289,11 @@ export function ProgramsTab({ user }: ProgramsTabProps) {
         fetchEnrolledPrograms();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to create custom program');
+        toast.error(data.error || 'Failed to create custom program');
       }
     } catch (error) {
       console.error('Custom program error:', error);
-      alert('Failed to create custom program');
+      toast.error('Failed to create custom program');
     } finally {
       setEnrolling(false);
     }

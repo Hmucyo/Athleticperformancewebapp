@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Plus, Edit2, Trash2, Users, DollarSign, Clock, X, MapPin, TrendingUp, Upload, Image as ImageIcon } from "lucide-react";
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { toast } from "sonner";
 
 interface ProgramManagementProps {
   user: any;
@@ -142,11 +143,11 @@ export function ProgramManagement({ user }: ProgramManagementProps) {
         fetchPrograms();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to create program');
+        toast.error(data.error || 'Failed to create program');
       }
     } catch (error) {
       console.error('Create program error:', error);
-      alert('Failed to create program');
+      toast.error('Failed to create program');
     }
   };
 
@@ -187,11 +188,11 @@ export function ProgramManagement({ user }: ProgramManagementProps) {
         fetchPrograms();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to update program');
+        toast.error(data.error || 'Failed to update program');
       }
     } catch (error) {
       console.error('Update program error:', error);
-      alert('Failed to update program');
+      toast.error('Failed to update program');
     }
   };
 
@@ -217,11 +218,11 @@ export function ProgramManagement({ user }: ProgramManagementProps) {
         fetchPrograms();
       } else {
         const data = await response.json();
-        alert(data.error || 'Failed to delete program');
+        toast.error(data.error || 'Failed to delete program');
       }
     } catch (error) {
       console.error('Delete program error:', error);
-      alert('Failed to delete program');
+      toast.error('Failed to delete program');
     }
   };
 

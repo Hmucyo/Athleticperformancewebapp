@@ -52,14 +52,20 @@ initStorage();
 app.use('*', logger(console.log));
 
 // Enable CORS for all routes and methods
+// In production, replace "*" with specific allowed origins
+const allowedOrigins = Deno.env.get('ALLOWED_ORIGINS')?.split(',') || ['*'];
 app.use(
   "/*",
   cors({
-    origin: "*",
+    origin: allowedOrigins.length === 1 && allowedOrigins[0] === '*' ? '*' : (origin) => {
+      if (!origin) return true; // Allow requests without origin (e.g., Postman)
+      return allowedOrigins.includes(origin);
+    },
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
+    credentials: true,
   }),
 );
 
@@ -137,12 +143,175 @@ app.get("/make-server-9340b842/auth/session", async (c) => {
         id: user.id,
         email: user.email,
         role: profile?.role || 'unknown',
-        fullName: profile?.fullName || user.user_metadata?.name
+        fullName: profile?.fullName || user.user_metadata?.name,
+        username: profile?.username || null,
+        phoneNumber: profile?.phoneNumber || null,
+        programs: profile?.programs || [],
+        assignedCoach: profile?.assignedCoach || null,
+        createdAt: profile?.createdAt || null
       }
     });
   } catch (error) {
     console.error('Session check error:', error);
     return c.json({ error: String(error) }, 500);
+  }
+});
+
+// Get current user's profile
+app.get("/make-server-9340b842/user/profile", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
+    if (authError || !user) {
+      return c.json({ error: 'Invalid session' }, 401);
+    }
+
+    const profile = await kv.get(`user:${user.id}`);
+    if (!profile) {
+      return c.json({ error: 'Profile not found' }, 404);
+    }
+
+    return c.json({ success: true, profile });
+  } catch (error) {
+    console.error('Get profile error:', error);
+    return c.json({ error: 'Failed to get profile' }, 500);
+  }
+});
+
+// Update current user's profile
+app.put("/make-server-9340b842/user/profile", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
+    if (authError || !user) {
+      return c.json({ error: 'Invalid session' }, 401);
+    }
+
+    const { fullName, username, phoneNumber } = await c.req.json();
+
+    const sanitizedFullName = fullName ? sanitizeString(String(fullName)) : '';
+    const sanitizedUsername = username ? sanitizeString(String(username)) : null;
+    const sanitizedPhone = phoneNumber ? sanitizeString(String(phoneNumber)) : null;
+
+    if (!sanitizedFullName) {
+      return c.json({ error: 'Full name is required' }, 400);
+    }
+
+    // Check if username is taken by another user
+    if (sanitizedUsername) {
+      const existingUsers = await kv.getByPrefix('user:');
+      const usernameTaken = existingUsers.some((u: any) =>
+        u?.id !== user.id && u?.username?.toLowerCase() === sanitizedUsername.toLowerCase()
+      );
+      if (usernameTaken) {
+        return c.json({ error: 'Username is already taken' }, 400);
+      }
+    }
+
+    const existingProfile = await kv.get(`user:${user.id}`);
+    if (!existingProfile) {
+      return c.json({ error: 'Profile not found' }, 404);
+    }
+
+    const updatedProfile = {
+      ...existingProfile,
+      fullName: sanitizedFullName,
+      username: sanitizedUsername,
+      phoneNumber: sanitizedPhone,
+      updatedAt: new Date().toISOString()
+    };
+
+    await kv.set(`user:${user.id}`, updatedProfile);
+
+    // Keep Supabase Auth metadata in sync (name)
+    try {
+      await supabase.auth.admin.updateUserById(user.id, {
+        user_metadata: {
+          ...(user.user_metadata || {}),
+          name: sanitizedFullName
+        }
+      });
+    } catch (e) {
+      console.warn('Failed to update auth metadata:', e);
+      // Non-fatal; profile is still updated in KV
+    }
+
+    return c.json({ success: true, profile: updatedProfile });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    return c.json({ error: 'Failed to update profile' }, 500);
+  }
+});
+
+// Request password reset email
+app.post("/make-server-9340b842/auth/request-password-reset", async (c) => {
+  try {
+    const { email } = await c.req.json();
+    const sanitizedEmail = sanitizeEmail(String(email || ''));
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(sanitizedEmail)) {
+      return c.json({ error: 'Invalid email address' }, 400);
+    }
+
+    const redirectTo = Deno.env.get('PASSWORD_RESET_REDIRECT_TO') || undefined;
+    const { error } = await supabaseAnon.auth.resetPasswordForEmail(sanitizedEmail, redirectTo ? { redirectTo } : undefined);
+
+    // Always return a generic success to avoid account enumeration.
+    if (error) {
+      console.warn('Password reset request failed:', error.message);
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Request password reset error:', error);
+    // Still return generic success to avoid account enumeration
+    return c.json({ success: true });
+  }
+});
+
+// Change password for the current user (requires a valid session)
+app.post("/make-server-9340b842/auth/change-password", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser(accessToken);
+    if (authError || !user) {
+      return c.json({ error: 'Invalid session' }, 401);
+    }
+
+    const { newPassword } = await c.req.json();
+    if (!newPassword) {
+      return c.json({ error: 'New password is required' }, 400);
+    }
+
+    const pwd = String(newPassword);
+    const passwordValidation = validatePassword(pwd);
+    if (!passwordValidation.isValid) {
+      return c.json({ error: passwordValidation.error }, 400);
+    }
+
+    const { error } = await supabase.auth.admin.updateUserById(user.id, { password: pwd });
+    if (error) {
+      console.error('Change password error:', error);
+      return c.json({ error: 'Failed to change password' }, 500);
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Change password error:', error);
+    return c.json({ error: 'Failed to change password' }, 500);
   }
 });
 
@@ -275,6 +444,37 @@ app.post("/make-server-9340b842/auth/create-coach", async (c) => {
   }
 });
 
+// Password validation function
+const validatePassword = (password: string): { isValid: boolean; error?: string } => {
+  if (password.length < 8) {
+    return { isValid: false, error: "Password must be at least 8 characters long" };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return { isValid: false, error: "Password must contain at least one uppercase letter" };
+  }
+  if (!/[a-z]/.test(password)) {
+    return { isValid: false, error: "Password must contain at least one lowercase letter" };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { isValid: false, error: "Password must contain at least one number" };
+  }
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+    return { isValid: false, error: "Password must contain at least one special character" };
+  }
+  return { isValid: true };
+};
+
+// Sanitize string input
+const sanitizeString = (input: string): string => {
+  if (typeof input !== 'string') return '';
+  return input.replace(/\0/g, '').replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '').trim();
+};
+
+// Sanitize email
+const sanitizeEmail = (email: string): string => {
+  return email.trim().toLowerCase();
+};
+
 // Sign up - Create new user with role
 app.post("/make-server-9340b842/auth/signup", async (c) => {
   try {
@@ -284,10 +484,28 @@ app.post("/make-server-9340b842/auth/signup", async (c) => {
       return c.json({ error: "Missing required fields" }, 400);
     }
 
+    // Validate password
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      return c.json({ error: passwordValidation.error }, 400);
+    }
+
+    // Sanitize inputs
+    const sanitizedEmail = sanitizeEmail(email);
+    const sanitizedFullName = sanitizeString(fullName);
+    const sanitizedUsername = username ? sanitizeString(username) : null;
+    const sanitizedPhone = phoneNumber ? sanitizeString(phoneNumber) : null;
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(sanitizedEmail)) {
+      return c.json({ error: "Invalid email format" }, 400);
+    }
+
     // Check if username already exists (if provided)
-    if (username) {
+    if (sanitizedUsername) {
       const existingUsers = await kv.getByPrefix('user:');
-      const usernameTaken = existingUsers.some((user: any) => user.username?.toLowerCase() === username.toLowerCase());
+      const usernameTaken = existingUsers.some((user: any) => user.username?.toLowerCase() === sanitizedUsername.toLowerCase());
       if (usernameTaken) {
         return c.json({ error: "Username is already taken" }, 400);
       }
@@ -295,10 +513,10 @@ app.post("/make-server-9340b842/auth/signup", async (c) => {
 
     // Create user in Supabase Auth
     const { data, error } = await supabase.auth.admin.createUser({
-      email,
+      email: sanitizedEmail,
       password,
       user_metadata: { 
-        name: fullName,
+        name: sanitizedFullName,
         role: role // 'athlete' or 'admin'
       },
       email_confirm: true // Auto-confirm since email server not configured
@@ -312,10 +530,10 @@ app.post("/make-server-9340b842/auth/signup", async (c) => {
     // Store additional user profile in KV store
     await kv.set(`user:${data.user.id}`, {
       id: data.user.id,
-      email,
-      fullName,
-      username: username || null,
-      phoneNumber: phoneNumber || null,
+      email: sanitizedEmail,
+      fullName: sanitizedFullName,
+      username: sanitizedUsername,
+      phoneNumber: sanitizedPhone,
       role,
       programs: [],
       assignedCoach: null,
@@ -326,10 +544,10 @@ app.post("/make-server-9340b842/auth/signup", async (c) => {
       success: true, 
       user: { 
         id: data.user.id, 
-        email, 
-        fullName,
-        username: username || null,
-        phoneNumber: phoneNumber || null,
+        email: sanitizedEmail, 
+        fullName: sanitizedFullName,
+        username: sanitizedUsername,
+        phoneNumber: sanitizedPhone,
         role 
       } 
     });
@@ -926,8 +1144,30 @@ app.post("/make-server-9340b842/journal/entries/:id/media", async (c) => {
       return c.json({ error: 'No file provided' }, 400);
     }
 
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm', 'video/quicktime'];
+    if (!allowedTypes.includes(file.type)) {
+      return c.json({ error: 'Invalid file type. Allowed types: images (JPEG, PNG, GIF, WebP) and videos (MP4, WebM, QuickTime)' }, 400);
+    }
+
+    // Validate file size (50MB limit)
+    const maxSizeBytes = 50 * 1024 * 1024; // 50MB
+    if (file.size > maxSizeBytes) {
+      return c.json({ error: 'File size exceeds 50MB limit' }, 400);
+    }
+
+    // Sanitize filename
+    const sanitizeFileName = (name: string): string => {
+      return name.replace(/[\/\\?%*:|"<>]/g, '_').replace(/^\.+|\.+$/g, '').trim() || 'file';
+    };
+
+    const sanitizedFileName = sanitizeFileName(file.name);
+    const fileExtension = sanitizedFileName.substring(sanitizedFileName.lastIndexOf('.') || 0);
+    const timestamp = Date.now();
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+
     // Upload to Supabase Storage
-    const fileName = `${user.id}/${Date.now()}-${file.name}`;
+    const fileName = `${user.id}/${timestamp}-${randomSuffix}${fileExtension}`;
     const { data, error: uploadError } = await supabase.storage
       .from('make-9340b842-journal-media')
       .upload(fileName, file);
@@ -989,6 +1229,17 @@ app.post("/make-server-9340b842/chat/messages", async (c) => {
       return c.json({ error: 'Message content required' }, 400);
     }
 
+    // Sanitize message content
+    const sanitizedContent = sanitizeString(content);
+    if (!sanitizedContent || sanitizedContent.length === 0) {
+      return c.json({ error: 'Message content cannot be empty' }, 400);
+    }
+
+    // Limit message length
+    if (sanitizedContent.length > 5000) {
+      return c.json({ error: 'Message is too long (max 5000 characters)' }, 400);
+    }
+
     // Determine the correct channelId
     let finalChannelId = channelId || 'general';
     
@@ -1014,7 +1265,7 @@ app.post("/make-server-9340b842/chat/messages", async (c) => {
       senderId: user.id,
       recipientId: recipientId || null,
       channelId: finalChannelId,
-      content,
+      content: sanitizedContent,
       createdAt: new Date().toISOString(),
       read: false
     };
@@ -1854,8 +2105,30 @@ app.post("/make-server-9340b842/admin/exercises/upload", async (c) => {
       return c.json({ error: 'No file provided' }, 400);
     }
 
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm', 'video/quicktime'];
+    if (!allowedTypes.includes(file.type)) {
+      return c.json({ error: 'Invalid file type. Allowed types: images (JPEG, PNG, GIF, WebP) and videos (MP4, WebM, QuickTime)' }, 400);
+    }
+
+    // Validate file size (50MB limit)
+    const maxSizeBytes = 50 * 1024 * 1024; // 50MB
+    if (file.size > maxSizeBytes) {
+      return c.json({ error: 'File size exceeds 50MB limit' }, 400);
+    }
+
+    // Sanitize filename
+    const sanitizeFileName = (name: string): string => {
+      return name.replace(/[\/\\?%*:|"<>]/g, '_').replace(/^\.+|\.+$/g, '').trim() || 'file';
+    };
+
+    const sanitizedFileName = sanitizeFileName(file.name);
+    const fileExtension = sanitizedFileName.substring(sanitizedFileName.lastIndexOf('.') || 0);
+    const timestamp = Date.now();
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+
     // Upload to Supabase Storage
-    const fileName = `${user.id}/${Date.now()}-${file.name}`;
+    const fileName = `${user.id}/${timestamp}-${randomSuffix}${fileExtension}`;
     const { data, error: uploadError } = await supabase.storage
       .from('make-9340b842-exercise-media')
       .upload(fileName, file);

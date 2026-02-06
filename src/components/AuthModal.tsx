@@ -1,6 +1,8 @@
 import { X } from "lucide-react";
 import { useState } from "react";
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { validatePassword, validateEmail, sanitizeString } from '../utils/validation';
+import { toast } from 'sonner';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -30,12 +32,42 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
 
     try {
       if (isSignUp) {
-        // Validate passwords match
-        if (formData.password !== formData.confirmPassword) {
-          setError("Passwords do not match");
+        // Validate email
+        if (!validateEmail(formData.email)) {
+          setError("Please enter a valid email address");
+          toast.error("Invalid email address");
           setLoading(false);
           return;
         }
+
+        // Validate password strength
+        const passwordValidation = validatePassword(formData.password);
+        if (!passwordValidation.isValid) {
+          const errorMsg = passwordValidation.errors.join('. ');
+          setError(errorMsg);
+          toast.error("Password requirements not met", {
+            description: passwordValidation.errors.join(', ')
+          });
+          setLoading(false);
+          return;
+        }
+
+        // Validate passwords match
+        if (formData.password !== formData.confirmPassword) {
+          setError("Passwords do not match");
+          toast.error("Passwords do not match");
+          setLoading(false);
+          return;
+        }
+
+        // Sanitize inputs
+        const sanitizedData = {
+          email: formData.email.trim().toLowerCase(),
+          password: formData.password,
+          fullName: sanitizeString(formData.fullName),
+          username: sanitizeString(formData.username),
+          phoneNumber: sanitizeString(formData.phoneNumber)
+        };
 
         // Sign up
         const response = await fetch(
@@ -47,11 +79,11 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
               'Authorization': `Bearer ${publicAnonKey}`
             },
             body: JSON.stringify({
-              email: formData.email,
-              password: formData.password,
-              fullName: formData.fullName,
-              username: formData.username,
-              phoneNumber: formData.phoneNumber,
+              email: sanitizedData.email,
+              password: sanitizedData.password,
+              fullName: sanitizedData.fullName,
+              username: sanitizedData.username,
+              phoneNumber: sanitizedData.phoneNumber,
               role: 'athlete'
             })
           }
@@ -60,10 +92,14 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
         const data = await response.json();
 
         if (!response.ok) {
-          setError(data.error || 'Failed to sign up');
+          const errorMsg = data.error || 'Failed to sign up';
+          setError(errorMsg);
+          toast.error(errorMsg);
           setLoading(false);
           return;
         }
+
+        toast.success("Account created successfully!");
 
         // After successful signup, sign in
         const signInResponse = await fetch(
@@ -75,8 +111,8 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
               'Authorization': `Bearer ${publicAnonKey}`
             },
             body: JSON.stringify({
-              email: formData.email,
-              password: formData.password
+              email: sanitizedData.email,
+              password: sanitizedData.password
             })
           }
         );
@@ -84,7 +120,9 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
         const signInData = await signInResponse.json();
 
         if (!signInResponse.ok) {
-          setError(signInData.error || 'Failed to sign in after signup');
+          const errorMsg = signInData.error || 'Failed to sign in after signup';
+          setError(errorMsg);
+          toast.error(errorMsg);
           setLoading(false);
           return;
         }
@@ -93,12 +131,21 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
         localStorage.setItem('accessToken', signInData.accessToken);
         localStorage.setItem('user', JSON.stringify(signInData.user));
 
+        toast.success("Welcome! You're signed in.");
         if (onAuthSuccess) {
           onAuthSuccess(signInData.user, signInData.accessToken);
         }
 
         onClose();
       } else {
+        // Sign in - validate email
+        if (!validateEmail(formData.email)) {
+          setError("Please enter a valid email address");
+          toast.error("Invalid email address");
+          setLoading(false);
+          return;
+        }
+
         // Sign in
         const response = await fetch(
           `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/auth/signin`,
@@ -109,7 +156,7 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
               'Authorization': `Bearer ${publicAnonKey}`
             },
             body: JSON.stringify({
-              email: formData.email,
+              email: formData.email.trim().toLowerCase(),
               password: formData.password
             })
           }
@@ -126,6 +173,7 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
           }
           
           setError(errorMessage);
+          toast.error(errorMessage);
           setLoading(false);
           return;
         }
@@ -134,6 +182,7 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
         localStorage.setItem('accessToken', data.accessToken);
         localStorage.setItem('user', JSON.stringify(data.user));
 
+        toast.success("Welcome back!");
         if (onAuthSuccess) {
           onAuthSuccess(data.user, data.accessToken);
         }
@@ -142,7 +191,9 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
       }
     } catch (err) {
       console.error('Auth error:', err);
-      setError('An error occurred. Please try again.');
+      const errorMsg = 'An error occurred. Please try again.';
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -294,10 +345,53 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
             <div className="flex justify-end">
               <button
                 type="button"
-                className="text-blue-400 hover:text-blue-300 text-sm"
+                onClick={() => {
+                  const email = window.prompt('Enter your email to receive a password reset link:', formData.email || '');
+                  if (!email) return;
+
+                  (async () => {
+                    try {
+                      const response = await fetch(
+                        `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/auth/request-password-reset`,
+                        {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${publicAnonKey}`
+                          },
+                          body: JSON.stringify({ email })
+                        }
+                      );
+
+                      if (response.ok) {
+                        toast.success('If an account exists for that email, a reset link has been sent.');
+                      } else {
+                        const data = await response.json().catch(() => ({}));
+                        toast.error(data.error || 'Failed to request password reset');
+                      }
+                    } catch (e) {
+                      console.error('Password reset request error:', e);
+                      toast.error('Failed to request password reset');
+                    }
+                  })();
+                }}
+                className="text-blue-400 hover:text-blue-300 text-sm transition-colors"
               >
                 Forgot password?
               </button>
+            </div>
+          )}
+
+          {isSignUp && (
+            <div className="text-xs text-gray-400 space-y-1">
+              <p>Password must contain:</p>
+              <ul className="list-disc list-inside space-y-0.5 ml-2">
+                <li>At least 8 characters</li>
+                <li>One uppercase letter</li>
+                <li>One lowercase letter</li>
+                <li>One number</li>
+                <li>One special character</li>
+              </ul>
             </div>
           )}
 

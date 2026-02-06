@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Users, Dumbbell, TrendingUp, Activity, Lock, Unlock } from "lucide-react";
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { toast } from "sonner";
 
 interface AdminHomeProps {
   user: any;
@@ -60,11 +61,11 @@ export function AdminHome({ user }: AdminHomeProps) {
       if (response.ok) {
         setGeneralChannelLocked(!generalChannelLocked);
       } else {
-        alert('Failed to update channel lock status');
+        toast.error('Failed to update channel lock status');
       }
     } catch (error) {
       console.error('Toggle lock error:', error);
-      alert('Failed to update channel lock status');
+      toast.error('Failed to update channel lock status');
     } finally {
       setLockLoading(false);
     }

@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { Send, Users, Hash, Search, X, Lock } from "lucide-react";
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { projectId } from '../../utils/supabase/info';
 import { toast } from 'sonner';
 import { sanitizeText } from '../../utils/sanitize';
 
-interface ChatTabProps {
+interface AdminChatTabProps {
   user: any;
 }
 
-export function ChatTab({ user }: ChatTabProps) {
+export function AdminChatTab({ user }: AdminChatTabProps) {
   const [channels, setChannels] = useState<any[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -102,6 +102,7 @@ export function ChatTab({ user }: ChatTabProps) {
       }
     } catch (error) {
       console.error('Failed to fetch channels:', error);
+      toast.error('Failed to load channels');
     } finally {
       setLoading(false);
     }
@@ -127,6 +128,7 @@ export function ChatTab({ user }: ChatTabProps) {
     } catch (error) {
       if (!silent) {
         console.error('Failed to fetch messages:', error);
+        toast.error('Failed to load messages');
       }
     }
   };
@@ -159,10 +161,14 @@ export function ChatTab({ user }: ChatTabProps) {
       // Determine recipientId for direct messages
       let recipientId = null;
       if (selectedChannel.type === 'direct') {
-        // Extract recipientId from channel ID (format: dm:userId)
-        recipientId = selectedChannel.id.startsWith('dm:') 
-          ? selectedChannel.id.replace('dm:', '')
-          : selectedChannel.recipientId || selectedChannel.id.split(':')[1];
+        // Extract recipientId from channel ID (format: dm:userId or athlete:userId)
+        if (selectedChannel.id.startsWith('dm:')) {
+          recipientId = selectedChannel.id.replace('dm:', '');
+        } else if (selectedChannel.id.startsWith('athlete:')) {
+          recipientId = selectedChannel.id.replace('athlete:', '');
+        } else {
+          recipientId = selectedChannel.recipientId || selectedChannel.id.split(':')[1];
+        }
       }
       
       const response = await fetch(
@@ -243,6 +249,7 @@ export function ChatTab({ user }: ChatTabProps) {
       }
     } catch (error) {
       console.error('Search error:', error);
+      toast.error('Failed to search users');
     } finally {
       setSearchLoading(false);
     }
@@ -275,9 +282,13 @@ export function ChatTab({ user }: ChatTabProps) {
         setSearchResults([]);
         // Refresh channels list to include the new conversation, but preserve the selected channel
         fetchChannels(true);
+      } else {
+        const errorData = await response.json();
+        toast.error(errorData.error || 'Failed to start conversation');
       }
     } catch (error) {
       console.error('Create DM error:', error);
+      toast.error('Failed to start conversation');
     }
   };
 
@@ -286,7 +297,8 @@ export function ChatTab({ user }: ChatTabProps) {
       {/* Channels Sidebar */}
       <div className="w-full md:w-64 bg-gray-900 border-b md:border-b-0 md:border-r border-white/10 flex flex-col h-full">
         <div className="p-4 border-b border-white/10">
-          <h2 className="text-white text-xl font-semibold">Channels</h2>
+          <h2 className="text-white text-xl font-semibold">Messages</h2>
+          <p className="text-gray-400 text-xs mt-1">Admin Chat</p>
         </div>
         
         {/* Search Bar */}
@@ -297,7 +309,7 @@ export function ChatTab({ user }: ChatTabProps) {
               type="text"
               value={searchQuery}
               onChange={handleSearchQueryChange}
-              placeholder="Search people..."
+              placeholder="Search users..."
               className="w-full bg-black/50 border border-white/10 rounded-lg pl-10 pr-10 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors text-sm"
             />
             {searchQuery && (
@@ -347,7 +359,7 @@ export function ChatTab({ user }: ChatTabProps) {
                   ))}
                 </>
               ) : searchQuery.length >= 2 ? (
-                <div className="p-4 text-gray-500 text-sm">No people found</div>
+                <div className="p-4 text-gray-500 text-sm">No users found</div>
               ) : null}
             </>
           ) : (
@@ -411,9 +423,6 @@ export function ChatTab({ user }: ChatTabProps) {
                   {selectedChannel.description && (
                     <p className="text-gray-400 text-sm">{selectedChannel.description}</p>
                   )}
-                  {selectedChannel.locked && (
-                    <p className="text-yellow-500 text-xs mt-1">This channel is locked. Only admins can send messages.</p>
-                  )}
                 </div>
               </div>
             </div>
@@ -455,35 +464,28 @@ export function ChatTab({ user }: ChatTabProps) {
 
             {/* Message Input */}
             <div className="p-4 bg-gray-900 border-t border-white/10">
-              {selectedChannel.locked && user.role !== 'admin' ? (
-                <div className="flex items-center gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-                  <Lock className="text-yellow-500" size={18} />
-                  <p className="text-yellow-500 text-sm">This channel is locked. Only admins can send messages.</p>
-                </div>
-              ) : (
-                <form onSubmit={handleSendMessage} className="flex gap-3">
-                  <input
-                    type="text"
-                    value={messageContent}
-                    onChange={(e) => setMessageContent(e.target.value)}
-                    placeholder="Type a message..."
-                    className="flex-1 bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-                    disabled={sending}
-                  />
-                  <button
-                    type="submit"
-                    disabled={sending || !messageContent.trim()}
-                    className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Send size={20} />
-                  </button>
-                </form>
-              )}
+              <form onSubmit={handleSendMessage} className="flex gap-3">
+                <input
+                  type="text"
+                  value={messageContent}
+                  onChange={(e) => setMessageContent(e.target.value)}
+                  placeholder="Type a message..."
+                  className="flex-1 bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+                  disabled={sending}
+                />
+                <button
+                  type="submit"
+                  disabled={sending || !messageContent.trim()}
+                  className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Send size={20} />
+                </button>
+              </form>
             </div>
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-500">
-            Select a channel to start chatting
+            Select a channel or search for a user to start chatting
           </div>
         )}
       </div>
