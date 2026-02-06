@@ -11,6 +11,7 @@ import { AdminDashboard } from "./components/admin/AdminDashboard";
 import { AdminLogin } from "./components/admin/AdminLogin";
 import { useState, useEffect } from "react";
 import { projectId, publicAnonKey } from './utils/supabase/info';
+import { createClient } from "@supabase/supabase-js";
 
 export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -35,8 +36,47 @@ export default function App() {
       const accessToken = localStorage.getItem('accessToken');
       const storedUser = localStorage.getItem('user');
 
-      if (accessToken && storedUser) {
-        // Verify session is still valid
+      if (!accessToken || !storedUser) {
+        setLoading(false);
+        return;
+      }
+
+      // Parse stored user as fallback
+      let parsedUser;
+      try {
+        parsedUser = JSON.parse(storedUser);
+      } catch (e) {
+        console.error('Failed to parse stored user:', e);
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('user');
+        setLoading(false);
+        return;
+      }
+
+      // Use Supabase client directly to validate the session
+      // This is more reliable than making a fetch call
+      const supabase = createClient(
+        `https://${projectId}.supabase.co`,
+        publicAnonKey
+      );
+
+      // Validate the token with Supabase by passing it directly to getUser
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(accessToken);
+
+      if (authError || !authUser) {
+        // Token is invalid or expired - clear storage
+        console.log('Session invalid:', authError?.message || 'No user found');
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('user');
+        localStorage.removeItem('userId');
+        localStorage.removeItem('userRole');
+        setLoading(false);
+        return;
+      }
+
+      // Session is valid - try to get updated user info from backend
+      // But if this fails, use stored user as fallback
+      try {
         const response = await fetch(
           `https://${projectId}.supabase.co/functions/v1/make-server-9340b842/auth/session`,
           {
@@ -50,15 +90,38 @@ export default function App() {
           const data = await response.json();
           setUser(data.user);
         } else {
-          // Session invalid, clear storage
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('user');
+          // Backend session check failed, but token is valid
+          // Use stored user as fallback (network issue, not auth issue)
+          console.warn('Backend session check failed, using stored user:', response.status);
+          setUser(parsedUser);
         }
+      } catch (networkError) {
+        // Network error - don't log out, use stored user
+        console.warn('Network error during session check, using stored user:', networkError);
+        setUser(parsedUser);
       }
     } catch (error) {
+      // Unexpected error - only clear if it's an auth-related error
       console.error('Session check error:', error);
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('user');
+      
+      // Only clear storage if we're certain it's an auth issue
+      // For network errors, keep the user logged in with stored data
+      const accessToken = localStorage.getItem('accessToken');
+      const storedUser = localStorage.getItem('user');
+      
+      if (accessToken && storedUser) {
+        // Try to use stored user as fallback
+        try {
+          const parsedUser = JSON.parse(storedUser);
+          setUser(parsedUser);
+        } catch (e) {
+          // Can't parse user, clear everything
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('user');
+          localStorage.removeItem('userId');
+          localStorage.removeItem('userRole');
+        }
+      }
     } finally {
       setLoading(false);
     }
