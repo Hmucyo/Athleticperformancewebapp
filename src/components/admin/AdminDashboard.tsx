@@ -31,39 +31,8 @@ interface AdminDashboardProps {
 }
 
 export function AdminDashboard({ user, onSignOut }: AdminDashboardProps) {
-  // Initialize activeTab from URL hash or default to 'overview'
-  const getInitialTab = (): Tab => {
-    const hash = window.location.hash.replace('#', '');
-    const validTabs: Tab[] = ['overview', 'athletes', 'programs', 'exercises', 'contracts', 'messages', 'analytics', 'settings', 'debug'];
-    return validTabs.includes(hash as Tab) ? (hash as Tab) : 'overview';
-  };
-
-  const [activeTab, setActiveTab] = useState<Tab>(getInitialTab);
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  // Restore tab from URL hash on mount and listen for hash changes
-  useEffect(() => {
-    const updateTabFromHash = () => {
-      const hash = window.location.hash.replace('#', '');
-      const validTabs: Tab[] = ['overview', 'athletes', 'programs', 'exercises', 'contracts', 'messages', 'analytics', 'settings', 'debug'];
-      if (validTabs.includes(hash as Tab)) {
-        setActiveTab(hash as Tab);
-      } else if (!hash) {
-        // If no hash, default to overview but don't update URL
-        setActiveTab('overview');
-      }
-    };
-
-    // Set initial tab from hash
-    updateTabFromHash();
-
-    // Listen for hash changes (browser back/forward buttons)
-    window.addEventListener('hashchange', updateTabFromHash);
-
-    return () => {
-      window.removeEventListener('hashchange', updateTabFromHash);
-    };
-  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -107,8 +76,6 @@ export function AdminDashboard({ user, onSignOut }: AdminDashboardProps) {
   const handleTabChange = (tabId: Tab) => {
     setActiveTab(tabId);
     setMobileMenuOpen(false);
-    // Update URL hash to persist tab on refresh
-    window.location.hash = tabId;
   };
 
   return (
